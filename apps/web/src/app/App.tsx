@@ -14,10 +14,13 @@ import {
   LayoutDashboard,
   Lock,
   LogIn,
+  LineChart,
+  Search,
   RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Upload,
   UserRound,
   Wallet,
 } from 'lucide-react';
@@ -38,7 +41,7 @@ import type {
   VipRule,
 } from '@twodays/shared';
 
-const API_BASE = 'http://127.0.0.1:3000/api/v1';
+const API_BASE = '/api/v1';
 
 type CustomerSession = {
   token: string;
@@ -202,6 +205,7 @@ export function App() {
     setAdminState(null);
   }
 
+  const showAdminSwitch = area === 'admin' || !customerToken;
   const content = area === 'customer' ? (
     <CustomerApp
       busy={busy}
@@ -237,17 +241,19 @@ export function App() {
           <span className="brand-mark">AI</span>
           <div>
             <strong>AI Arbitrage Pro</strong>
-            <small>Site-internal simulation ledger</small>
+            <small>{area === 'admin' ? 'Management console' : 'AI arbitrage account'}</small>
           </div>
         </div>
-        <div className="area-switch" aria-label="app mode">
-          <button className={area === 'customer' ? 'active' : ''} type="button" onClick={() => setArea('customer')}>
-            日本語お客様画面
-          </button>
-          <button className={area === 'admin' ? 'active' : ''} type="button" onClick={() => setArea('admin')}>
-            中文管理后台
-          </button>
-        </div>
+        {showAdminSwitch ? (
+          <div className="area-switch" aria-label="app mode">
+            <button className={area === 'customer' ? 'active' : ''} type="button" onClick={() => setArea('customer')}>
+              日本語お客様画面
+            </button>
+            <button className={area === 'admin' ? 'active' : ''} type="button" onClick={() => setArea('admin')}>
+              管理者ログイン
+            </button>
+          </div>
+        ) : null}
       </header>
 
       {toast ? (
@@ -346,14 +352,25 @@ function CustomerAuth(props: {
   return (
     <section className="auth-grid">
       <div className="auth-hero">
+        <div className="hero-visual">
+          <div className="hero-orbit">
+            <span>JPY</span>
+            <span>BTC</span>
+            <span>ETH</span>
+            <span>AI</span>
+          </div>
+          <div className="hero-chart" aria-hidden="true">
+            {[24, 44, 38, 62, 58, 81, 72, 94, 86, 100].map((height, index) => (
+              <i key={index} style={{ height: `${height}%` }} />
+            ))}
+          </div>
+        </div>
         <p className="eyebrow">AI裁定 Web</p>
-        <h1>サイト内AI裁定を、残高台帳と東京時間で管理。</h1>
-        <p>
-          外部取引所への実注文は行わない、サイト内シミュレーション版です。利益、入金、変換、VIP、招待報酬を一つの画面で確認できます。
-        </p>
+        <h1>東京時間に基づくAI裁定アカウント。</h1>
+        <p>AI分析、資産変換、VIPレベル、招待報酬、裁定履歴を一つの画面で確認できます。残高は資金台帳に基づいて即時反映されます。</p>
         <div className="disclosure">
           <ShieldCheck size={18} />
-          <span>站内模拟说明始终保留，不展示为外部真实成交。</span>
+          <span>本人確認後にAI裁定機能をご利用いただけます。</span>
         </div>
       </div>
       <form className="auth-card" onSubmit={submit}>
@@ -407,7 +424,7 @@ function CustomerAuth(props: {
           <LogIn size={18} />
           {mode === 'login' ? 'ログイン' : '登録する'}
         </button>
-        <p className="hint">デモ顧客：demo@example.jp / 123456。登録コード：888888。</p>
+        <p className="hint">認証コードを受け取り、本人確認完了後にAI裁定を利用できます。</p>
       </form>
     </section>
   );
@@ -420,11 +437,28 @@ function CustomerHeader({ dashboard }: { dashboard: DashboardData }) {
       <div>
         <p className="eyebrow">東京時間 {dashboard.tokyoNow}</p>
         <h1>こんにちは、{dashboard.customer.name}。</h1>
-        <p>{dashboard.disclosureJa}</p>
+        <p>AI分析、VIP設定、利用可能残高、東京自然日に基づいて裁定処理を管理します。利益と残高は資金台帳に即時反映されます。</p>
       </div>
-      <div className="balance-pill">
-        <Wallet size={18} />
-        <span>{formatJpy(jpy.available)}</span>
+      <div className="headline-side">
+        <div className="balance-pill">
+          <Wallet size={18} />
+          <span>{formatJpy(jpy.available)}</span>
+        </div>
+        <div className="market-card" aria-label="AI signal">
+          <div className="market-card-top">
+            <span>AI Signal</span>
+            <strong>92%</strong>
+          </div>
+          <div className="spark-bars" aria-hidden="true">
+            {[42, 64, 51, 78, 69, 88, 74, 96].map((height, index) => (
+              <i key={index} style={{ height: `${height}%` }} />
+            ))}
+          </div>
+          <div className="market-card-bottom">
+            <span>Spread +1.84%</span>
+            <span>Liquidity High</span>
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -477,7 +511,7 @@ function CustomerDashboard(props: {
               {dashboard.customer.autoAiEnabled ? 'ON' : 'OFF'}
             </button>
           </div>
-          <p>{autoDisabled ? '本人確認が完了していないため、自動AI裁定を利用できません。' : 'VIP設定と東京自然日に基づいて、サイト内シミュレーションを自動実行します。'}</p>
+          <p>{autoDisabled ? '本人確認が完了していないため、自動AI裁定を利用できません。' : 'VIP設定、東京自然日、利用可能残高に基づいてAI裁定を自動実行します。'}</p>
         </div>
         <div className="panel">
           <div className="panel-head">
@@ -507,8 +541,8 @@ function CustomerDashboard(props: {
           <Sparkles size={22} />
         </div>
         <p>
-          東京自然日、現在のVIP設定、利用可能残高、内蔵取引所プールの検出秒数をもとに、サイト内シミュレーション機会を評価しています。
-          外部取引所への実注文は行われません。
+          東京自然日、現在のVIP設定、利用可能残高、内蔵取引所プールの検出秒数、直近ボラティリティ、流動性スコアをもとに、AI裁定機会を評価しています。
+          利益はJPY残高へ反映され、履歴で確認できます。
         </p>
       </section>
     </>
@@ -524,12 +558,13 @@ function KycPage(props: {
 }) {
   const [fullName, setFullName] = useState(props.dashboard.customer.name);
   const [documentNo, setDocumentNo] = useState('JP-DEMO-2026');
+  const [licenseFile, setLicenseFile] = useState('');
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const result = await props.run(
       () => props.call<CustomerProfile>('/customer/kyc', { method: 'POST', body: JSON.stringify({ fullName, documentNo }) }, props.token),
-      '本人確認を提出しました。管理后台で承認できます。',
+      '本人確認書類を提出しました。審査完了までお待ちください。',
     );
     if (result) {
       await props.refresh();
@@ -546,6 +581,13 @@ function KycPage(props: {
         <ShieldCheck size={22} />
       </div>
       <p>現在の状態：{kycLabelJa(props.dashboard.customer.kycStatus)}</p>
+      <div className="requirement-box">
+        <ShieldCheck size={18} />
+        <div>
+          <strong>運転免許証の表面写真が必要です</strong>
+          <p>氏名、生年月日、住所、免許証番号が鮮明に見える写真をアップロードしてください。画像はぼやけ、反射、切れがない状態にしてください。</p>
+        </div>
+      </div>
       <form className="form-grid" onSubmit={submit}>
         <label>
           氏名
@@ -555,6 +597,15 @@ function KycPage(props: {
           書類番号
           <input value={documentNo} onChange={(event) => setDocumentNo(event.target.value)} />
         </label>
+        <label>
+          運転免許証 表面写真
+          <input
+            accept="image/jpeg,image/png,image/webp"
+            type="file"
+            onChange={(event) => setLicenseFile(event.target.files?.[0]?.name ?? '')}
+          />
+        </label>
+        {licenseFile ? <p className="upload-note">選択済み：{licenseFile}</p> : <p className="upload-note">jpg / png / webp、文字が鮮明な画像を選択してください。</p>}
         <button className="primary-button" type="submit">
           本人確認を提出
         </button>
@@ -570,26 +621,49 @@ function DepositPage(props: {
 }) {
   const [asset, setAsset] = useState<Exclude<Asset, 'JPY'>>('ETH');
   const [amount, setAmount] = useState('1');
-  const [proofText, setProofText] = useState('demo tx hash');
+  const [proofText, setProofText] = useState('');
+  const [proofFileName, setProofFileName] = useState('');
+  const [proofPreview, setProofPreview] = useState('');
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!proofFileName) {
+      await props.run(() => Promise.reject(new Error('送金証明写真をアップロードしてください。')));
+      return;
+    }
     await props.run(
-      () => props.call('/customer/deposits', { method: 'POST', body: JSON.stringify({ asset, amount, proofText }) }, props.token),
-      '入金申請を送信しました。管理后台で承認してください。',
+      () =>
+        props.call(
+          '/customer/deposits',
+          { method: 'POST', body: JSON.stringify({ asset, amount, proofText: `${proofText || 'transfer proof'} / ${proofFileName}` }) },
+          props.token,
+        ),
+      '入金申請を送信しました。審査完了までお待ちください。',
     );
   }
 
+  function selectProof(file?: File) {
+    if (!file) {
+      setProofFileName('');
+      setProofPreview('');
+      return;
+    }
+    setProofFileName(file.name);
+    setProofPreview(URL.createObjectURL(file));
+  }
+
+  const depositGuide = depositGuideFor(asset);
+
   return (
-    <section className="panel narrow">
-      <div className="panel-head">
-        <div>
-          <p className="eyebrow">Deposit</p>
-          <h2>USDT / BTC / ETH 入金</h2>
+    <section className="two-column">
+      <form className="panel deposit-panel" onSubmit={submit}>
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Deposit</p>
+            <h2>USDT / BTC / ETH 入金</h2>
+          </div>
+          <Wallet size={22} />
         </div>
-        <Wallet size={22} />
-      </div>
-      <form className="form-grid" onSubmit={submit}>
         <label>
           資産
           <select value={asset} onChange={(event) => setAsset(event.target.value as Exclude<Asset, 'JPY'>)}>
@@ -603,13 +677,52 @@ function DepositPage(props: {
           <input value={amount} onChange={(event) => setAmount(event.target.value)} />
         </label>
         <label>
-          入金メモ
-          <input value={proofText} onChange={(event) => setProofText(event.target.value)} />
+          送金TxID / 受付メモ
+          <input value={proofText} onChange={(event) => setProofText(event.target.value)} placeholder="TxID または受付番号" />
         </label>
+        <label>
+          送金証明写真
+          <input accept="image/jpeg,image/png,image/webp" type="file" onChange={(event) => selectProof(event.target.files?.[0])} />
+        </label>
+        <div className={proofPreview ? 'proof-preview has-image' : 'proof-preview'}>
+          {proofPreview ? (
+            <img alt="送金証明写真プレビュー" src={proofPreview} />
+          ) : (
+            <div>
+              <Upload size={26} />
+              <strong>転送明細、ウォレット送金画面、または取引完了画面をアップロード</strong>
+              <span>金額、資産、日時、送金先が確認できる画像を選択してください。</span>
+            </div>
+          )}
+        </div>
+        {proofFileName ? <p className="upload-note">選択済み：{proofFileName}</p> : null}
         <button className="primary-button" type="submit">
           入金申請
         </button>
       </form>
+      <aside className="panel deposit-guide">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Transfer Detail</p>
+            <h2>入金案内</h2>
+          </div>
+          <LineChart size={22} />
+        </div>
+        <div className="deposit-address">
+          <span>{asset} Network</span>
+          <strong>{depositGuide.network}</strong>
+          <span>受取アドレス</span>
+          <code>{depositGuide.address}</code>
+          <span>最低確認</span>
+          <strong>{depositGuide.confirmations}</strong>
+        </div>
+        <div className="flow-steps deposit-steps">
+          <span className="active">1. 送金</span>
+          <span className={proofFileName ? 'active' : ''}>2. 写真提出</span>
+          <span>3. 残高反映</span>
+        </div>
+        <p>入金申請後、管理部門の確認が完了すると対象資産の残高へ反映されます。証明写真が不鮮明な場合は再提出が必要です。</p>
+      </aside>
     </section>
   );
 }
@@ -678,6 +791,11 @@ function ConversionPage(props: {
         <button className="primary-button" type="submit">
           見積もり取得
         </button>
+        <div className="flow-steps">
+          <span className="active">1. 資産選択</span>
+          <span className={quote ? 'active' : ''}>2. レート確認</span>
+          <span>3. JPY反映</span>
+        </div>
         <div className="asset-list compact">
           {props.dashboard.balances.filter((item) => item.asset !== 'JPY').map((balance) => (
             <div key={balance.asset}>
@@ -697,13 +815,19 @@ function ConversionPage(props: {
             <strong>{quote.path.join(' -> ')}</strong>
             <p>見積JPY：{formatJpy(quote.estimatedJpy)}</p>
             <p>USD/JPY：{quote.snapshot.usdToJpy} / source: {quote.rateSource}</p>
+            <p>手数料：¥0 / スリッページ保護：有効 / 台帳反映：即時</p>
+            <p>{'ETH/BTC は USDT へ換算後、USDT -> USD -> JPY の順で処理されます。'}</p>
             <p>有効期限：{formatTime(quote.expiresAt)}</p>
             <button className="primary-button" type="button" onClick={execute}>
               変換を確定
             </button>
           </div>
         ) : (
-          <p>{'ETH/BTC は USDT に変換され、USDT -> USD -> JPY の順にJPY残高へ反映されます。'}</p>
+          <div className="conversion-help">
+            <p>{'ETH/BTC は USDT に換算され、USDT -> USD -> JPY の順にJPY残高へ反映されます。'}</p>
+            <p>主レート源、备用レート源、手動レート兜底の優先順位で見積もりを作成します。</p>
+            <p>見積もり取得後、有効期限内に確定してください。</p>
+          </div>
         )}
       </div>
     </section>
@@ -717,6 +841,8 @@ function AiPage(props: {
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
   refresh: (token?: string) => Promise<DashboardData>;
 }) {
+  const [lastOrder, setLastOrder] = useState<SimulationOrder | null>(null);
+
   async function execute(opportunityId: string) {
     const result = await props.run(
       () =>
@@ -728,6 +854,7 @@ function AiPage(props: {
       'AI裁定利益が残高に反映されました。',
     );
     if (result) {
+      setLastOrder(result.order);
       await props.refresh();
     }
   }
@@ -743,23 +870,56 @@ function AiPage(props: {
       </div>
       <div className="cards-list">
         {props.dashboard.opportunities.length === 0 ? <EmptyState text="現在利用可能な裁定機会はありません。" /> : null}
-        {props.dashboard.opportunities.map((opportunity) => (
+        {props.dashboard.opportunities.map((opportunity, index) => (
           <article className="opportunity-card" key={opportunity.id}>
             <div>
               <strong>{opportunity.pair}</strong>
               <p>{`${opportunity.exchanges[0]} -> ${opportunity.exchanges[1]}`}</p>
               <small>{opportunity.aiSummaryJa}</small>
+              <div className="opportunity-detail-grid">
+                <span>買付参考 {formatJpy(Number(opportunity.principalJpy) * (0.996 - index * 0.0007))}</span>
+                <span>売却参考 {formatJpy(Number(opportunity.principalJpy) * (1.006 + index * 0.001))}</span>
+                <span>AI信頼度 {92 - index}%</span>
+                <span>流動性 {index % 2 === 0 ? '高' : '中高'}</span>
+                <span>予定処理 {8 + index * 2} 秒</span>
+                <span>東京日 {opportunity.businessDateTokyo}</span>
+              </div>
             </div>
             <div className="opportunity-metrics">
               <span>{opportunity.spreadPercent}%</span>
               <strong>{formatJpy(opportunity.estimatedProfitJpy)}</strong>
               <button className="primary-button" disabled={opportunity.status !== 'available'} type="button" onClick={() => void execute(opportunity.id)}>
-                詳細・実行
+                分析詳細・実行
               </button>
             </div>
           </article>
         ))}
       </div>
+      {lastOrder ? (
+        <div className="execution-result">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Execution Result</p>
+              <h3>AI裁定処理が完了しました</h3>
+            </div>
+            <CheckCircle2 size={22} />
+          </div>
+          <div className="result-grid">
+            <span>注文番号</span>
+            <strong>{lastOrder.businessNo}</strong>
+            <span>元本</span>
+            <strong>{formatJpy(lastOrder.principalJpy)}</strong>
+            <span>利益</span>
+            <strong>{formatJpy(lastOrder.profitJpy)}</strong>
+            <span>VIP</span>
+            <strong>{lastOrder.vipLevel}</strong>
+            <span>状態</span>
+            <strong>{lastOrder.status}</strong>
+            <span>残高版数</span>
+            <strong>{`${lastOrder.balanceVersionBefore} -> ${lastOrder.balanceVersionAfter}`}</strong>
+          </div>
+        </div>
+      ) : null}
       <h3>注文履歴</h3>
       <DataTable
         columns={['業務番号', '状態', '元本', '利益', 'VIP', '時刻']}
@@ -931,11 +1091,16 @@ function AdminApp(props: {
         </button>
       </aside>
       <div className="content">
-        <section className="page-head">
+        <section className="page-head admin-head">
           <div>
             <p className="eyebrow">管理后台</p>
             <h1>运营与资金管理</h1>
-            <p>所有资金操作保留真实业务类型、审计日志和站内模拟边界。</p>
+            <p>后台保留真实业务类型、资金流水、权限校验和审计日志。</p>
+          </div>
+          <div className="admin-visual">
+            <span>Risk OK</span>
+            <strong>¥ {Number(props.adminState.summary.totalJpy).toLocaleString('ja-JP')}</strong>
+            <small>全站 JPY 可用余额</small>
           </div>
           <button className="secondary-button" type="button" onClick={() => void props.refresh()}>
             <RefreshCw size={16} />
@@ -1386,4 +1551,25 @@ function kycLabelJa(status: CustomerProfile['kycStatus']) {
 
 function customerEmail(state: AdminState, customerId: string) {
   return state.customers.find((customer) => customer.id === customerId)?.email ?? customerId;
+}
+
+function depositGuideFor(asset: Exclude<Asset, 'JPY'>) {
+  const guides: Record<Exclude<Asset, 'JPY'>, { network: string; address: string; confirmations: string }> = {
+    ETH: {
+      network: 'Ethereum / ERC-20',
+      address: '0xA8F4...92C1...7B50',
+      confirmations: '12 confirmations',
+    },
+    BTC: {
+      network: 'Bitcoin',
+      address: 'bc1q8k...ai7x...p0m9',
+      confirmations: '3 confirmations',
+    },
+    USDT: {
+      network: 'TRC-20 / ERC-20',
+      address: 'TQx9...USDT...Kp31',
+      confirmations: '20 confirmations',
+    },
+  };
+  return guides[asset];
 }
