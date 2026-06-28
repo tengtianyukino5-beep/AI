@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.pnpm-store/
+.env
+.env.local
+.env.*.local
+coverage/
+.DS_Store
+*.log
+apps/web/.vite/
+apps/api/.nest/

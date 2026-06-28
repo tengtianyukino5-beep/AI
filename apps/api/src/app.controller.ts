@@ -1,0 +1,187 @@
+import { Body, Controller, Get, Headers, Param, Patch, Post } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { AppService } from './app.service';
+
+type Asset = 'JPY' | 'USDT' | 'BTC' | 'ETH';
+type VipLevel = 'VIP0' | 'VIP1' | 'VIP2' | 'VIP3';
+
+interface ApiResponse<T> {
+  code: string;
+  message: string;
+  data: T;
+  requestId: string;
+}
+
+@ApiTags('AI Arbitrage MVP')
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get('health')
+  health() {
+    return this.ok(this.appService.health());
+  }
+
+  @Post('auth/email-code/send')
+  sendEmailCode(@Body() body: { email: string }) {
+    return this.safe(() => this.appService.sendEmailCode(body.email));
+  }
+
+  @Post('auth/register')
+  register(@Body() body: { email: string; password: string; code: string; inviteCode?: string }) {
+    return this.safe(() => this.appService.register(body));
+  }
+
+  @Post('auth/login')
+  customerLogin(@Body() body: { email: string; password: string }) {
+    return this.safe(() => this.appService.customerLogin(body.email, body.password));
+  }
+
+  @Post('admin/auth/login')
+  adminLogin(@Body() body: { username: string; password: string }) {
+    return this.safe(() => this.appService.adminLogin(body.username, body.password));
+  }
+
+  @Get('customer/dashboard')
+  customerDashboard(@Headers('authorization') authorization?: string) {
+    return this.safe(() => this.appService.dashboard(this.customer(authorization)));
+  }
+
+  @Post('customer/kyc')
+  submitKyc(@Headers('authorization') authorization: string | undefined, @Body() body: { fullName: string; documentNo: string }) {
+    return this.safe(() => this.appService.submitKyc(this.customer(authorization), body));
+  }
+
+  @Post('customer/simulation/auto-toggle')
+  toggleAutoAi(@Headers('authorization') authorization: string | undefined, @Body() body: { enabled: boolean }) {
+    return this.safe(() => this.appService.toggleAutoAi(this.customer(authorization), body.enabled));
+  }
+
+  @Post('customer/deposits')
+  createDeposit(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { asset: Exclude<Asset, 'JPY'>; amount: string; proofText: string },
+  ) {
+    return this.safe(() => this.appService.createDeposit(this.customer(authorization), body));
+  }
+
+  @Post('customer/conversions/quote')
+  quoteConversion(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { fromAsset: Exclude<Asset, 'JPY'>; amount: string },
+  ) {
+    return this.safe(() => this.appService.quoteConversion(this.customer(authorization), body));
+  }
+
+  @Post('customer/conversions')
+  executeConversion(@Headers('authorization') authorization: string | undefined, @Body() body: { quoteId: string }) {
+    return this.safe(() => this.appService.executeConversion(this.customer(authorization), body.quoteId));
+  }
+
+  @Post('customer/vip/upgrade')
+  upgradeVip(@Headers('authorization') authorization?: string) {
+    return this.safe(() => this.appService.upgradeVip(this.customer(authorization)));
+  }
+
+  @Post('customer/simulation/orders')
+  createSimulationOrder(@Headers('authorization') authorization: string | undefined, @Body() body: { opportunityId: string }) {
+    return this.safe(() => this.appService.createSimulationOrder(this.customer(authorization), body.opportunityId));
+  }
+
+  @Get('customer/invites')
+  inviteInfo(@Headers('authorization') authorization?: string) {
+    return this.safe(() => this.appService.inviteInfo(this.customer(authorization)));
+  }
+
+  @Get('admin/state')
+  adminState(@Headers('authorization') authorization?: string) {
+    return this.safe(() => {
+      this.admin(authorization);
+      return this.appService.adminState();
+    });
+  }
+
+  @Post('admin/kyc/:customerId/approve')
+  approveKyc(@Headers('authorization') authorization: string | undefined, @Param('customerId') customerId: string) {
+    return this.safe(() => this.appService.approveKyc(customerId, this.admin(authorization)));
+  }
+
+  @Post('admin/kyc/:customerId/reject')
+  rejectKyc(@Headers('authorization') authorization: string | undefined, @Param('customerId') customerId: string) {
+    return this.safe(() => this.appService.rejectKyc(customerId, this.admin(authorization)));
+  }
+
+  @Post('admin/deposits/:depositId/approve')
+  approveDeposit(@Headers('authorization') authorization: string | undefined, @Param('depositId') depositId: string) {
+    return this.safe(() => this.appService.approveDeposit(depositId, this.admin(authorization)));
+  }
+
+  @Post('admin/deposits/:depositId/reject')
+  rejectDeposit(@Headers('authorization') authorization: string | undefined, @Param('depositId') depositId: string) {
+    return this.safe(() => this.appService.rejectDeposit(depositId, this.admin(authorization)));
+  }
+
+  @Post('admin/balances/adjust')
+  adjustCustomerBalance(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { customerId: string; asset: Asset; amount: string; direction: 'credit' | 'debit'; reason: string },
+  ) {
+    return this.safe(() => this.appService.adjustCustomerBalance(body, this.admin(authorization)));
+  }
+
+  @Patch('admin/exchanges/:exchangeId')
+  updateExchange(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('exchangeId') exchangeId: string,
+    @Body() body: { intervalSeconds: number; enabled: boolean },
+  ) {
+    return this.safe(() => this.appService.updateExchange(exchangeId, body, this.admin(authorization)));
+  }
+
+  @Patch('admin/vip/:level')
+  updateVip(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('level') level: VipLevel,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.safe(() => this.appService.updateVip(level, body, this.admin(authorization)));
+  }
+
+  private customer(authorization?: string) {
+    return this.appService.customerByToken(this.bearer(authorization));
+  }
+
+  private admin(authorization?: string) {
+    return this.appService.adminByToken(this.bearer(authorization));
+  }
+
+  private bearer(authorization?: string) {
+    return authorization?.replace(/^Bearer\s+/i, '').trim() ?? '';
+  }
+
+  private safe<T>(fn: () => T): ApiResponse<T | null> {
+    try {
+      return this.ok(fn());
+    } catch (error) {
+      return {
+        code: 'ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        data: null,
+        requestId: this.requestId(),
+      };
+    }
+  }
+
+  private ok<T>(data: T): ApiResponse<T> {
+    return {
+      code: 'OK',
+      message: 'success',
+      data,
+      requestId: this.requestId(),
+    };
+  }
+
+  private requestId() {
+    return `req_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+  }
+}

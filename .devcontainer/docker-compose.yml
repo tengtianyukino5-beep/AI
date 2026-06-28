@@ -1,0 +1,41 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ..:/workspaces/AI:cached
+    command: sleep infinity
+    environment:
+      NODE_ENV: development
+      APP_MODE: codespaces
+      API_PORT: 3000
+      WEB_PORT: 5173
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ai_arbitrage
+      REDIS_URL: redis://redis:6379
+      BUSINESS_TIMEZONE: Asia/Tokyo
+      DISABLE_EXTERNAL_EXCHANGE_ORDER: "true"
+      SHOW_SIMULATION_DISCLOSURE: "true"
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_arbitrage
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+volumes:
+  postgres-data:
+  redis-data:

@@ -1,0 +1,1592 @@
+openapi: 3.0.3
+info:
+  title: TwoDays MVP API
+  version: 0.1.0
+  description: |
+    情侣陪伴类 Web App MVP 接口文档。
+
+    约定：
+    - 所有业务接口统一前缀为 `/api/v1`。
+    - 认证使用 Bearer JWT。
+    - 金额使用整数存储，单位由币种决定；JPY 可直接使用日元，CNY 建议使用分。
+    - 日期字段如 `checkinDate`、`messageDate`、`startedOn` 使用 `YYYY-MM-DD`。
+    - 时间字段使用 ISO 8601 UTC 时间字符串。
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development
+  - url: https://api.example.com/api/v1
+    description: Production placeholder
+tags:
+  - name: Health
+  - name: Auth
+  - name: Me
+  - name: Relationships
+  - name: Dashboard
+  - name: Checkins
+  - name: Calendar
+  - name: Goals
+  - name: Messages
+  - name: Settings
+  - name: Exports
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, timestamp]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /auth/send-code:
+    post:
+      tags: [Auth]
+      summary: 发送邮箱验证码
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendCodeRequest"
+      responses:
+        "200":
+          description: 验证码已发送
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendCodeEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: 邮箱验证码登录
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthEnvelope"
+        "400":
+          $ref: "#/components/responses/AuthCodeError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: 刷新 access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Token 已刷新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: 退出登录
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogoutRequest"
+      responses:
+        "200":
+          description: 已退出
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptyEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /me:
+    get:
+      tags: [Me]
+      summary: 获取当前用户资料
+      responses:
+        "200":
+          description: 当前用户资料
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Me]
+      summary: 更新当前用户资料
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMeRequest"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /relationships:
+    post:
+      tags: [Relationships]
+      summary: 创建情侣关系
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRelationshipRequest"
+      responses:
+        "201":
+          description: 关系已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelationshipEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /relationships/join:
+    post:
+      tags: [Relationships]
+      summary: 使用邀请码加入关系
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinRelationshipRequest"
+      responses:
+        "200":
+          description: 已加入关系
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelationshipEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /relationships/current:
+    get:
+      tags: [Relationships]
+      summary: 获取当前关系
+      responses:
+        "200":
+          description: 当前关系
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentRelationshipEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /relationships/current/break:
+    post:
+      tags: [Relationships]
+      summary: 解除当前关系
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BreakRelationshipRequest"
+      responses:
+        "200":
+          description: 关系已解除
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelationshipEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      summary: 获取首页聚合数据
+      responses:
+        "200":
+          description: 首页数据
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /checkins/today:
+    get:
+      tags: [Checkins]
+      summary: 获取今日双方打卡状态
+      responses:
+        "200":
+          description: 今日状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodayCheckinEnvelope"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+    post:
+      tags: [Checkins]
+      summary: 提交或更新今日打卡
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitCheckinRequest"
+      responses:
+        "200":
+          description: 今日打卡已提交
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitCheckinEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /checkins/timeline:
+    get:
+      tags: [Checkins]
+      summary: 获取心情时间线
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+          description: 开始日期，包含当天
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+          description: 结束日期，包含当天
+      responses:
+        "200":
+          description: 时间线
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckinTimelineEnvelope"
+
+  /checkins/{date}:
+    get:
+      tags: [Checkins]
+      summary: 获取指定日期双方打卡
+      parameters:
+        - name: date
+          in: path
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2024-05-20"
+      responses:
+        "200":
+          description: 指定日期记录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DateCheckinEnvelope"
+
+  /calendar:
+    get:
+      tags: [Calendar]
+      summary: 获取月历聚合数据
+      parameters:
+        - name: month
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^\\d{4}-\\d{2}$"
+          example: "2024-05"
+      responses:
+        "200":
+          description: 月历数据
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /goals/current:
+    get:
+      tags: [Goals]
+      summary: 获取当前 active 目标
+      responses:
+        "200":
+          description: 当前目标，可为空
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentGoalEnvelope"
+
+  /goals:
+    post:
+      tags: [Goals]
+      summary: 创建目标
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGoalRequest"
+      responses:
+        "201":
+          description: 目标已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoalEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /goals/{goalId}:
+    patch:
+      tags: [Goals]
+      summary: 编辑目标
+      parameters:
+        - $ref: "#/components/parameters/GoalId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateGoalRequest"
+      responses:
+        "200":
+          description: 目标已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoalEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /goals/{goalId}/entries:
+    get:
+      tags: [Goals]
+      summary: 获取目标流水
+      parameters:
+        - $ref: "#/components/parameters/GoalId"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: 目标流水
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoalEntriesEnvelope"
+    post:
+      tags: [Goals]
+      summary: 添加目标金额流水
+      parameters:
+        - $ref: "#/components/parameters/GoalId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGoalEntryRequest"
+      responses:
+        "201":
+          description: 流水已添加
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateGoalEntryEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /messages:
+    get:
+      tags: [Messages]
+      summary: 获取消息列表
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+          example: "2024-05-20"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: 消息列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagesEnvelope"
+    post:
+      tags: [Messages]
+      summary: 发送消息
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMessageRequest"
+      responses:
+        "201":
+          description: 消息已发送
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /messages/{messageId}:
+    delete:
+      tags: [Messages]
+      summary: 删除自己发送的消息
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 已删除
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptyEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /settings:
+    get:
+      tags: [Settings]
+      summary: 获取用户设置
+      responses:
+        "200":
+          description: 用户设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsEnvelope"
+    patch:
+      tags: [Settings]
+      summary: 更新用户设置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSettingsRequest"
+      responses:
+        "200":
+          description: 设置已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsEnvelope"
+
+  /exports:
+    post:
+      tags: [Exports]
+      summary: 创建数据导出任务
+      responses:
+        "202":
+          description: 导出任务已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportJobEnvelope"
+
+  /exports/{exportId}:
+    get:
+      tags: [Exports]
+      summary: 查询数据导出任务
+      parameters:
+        - name: exportId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 导出任务状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportJobEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+      description: 分页游标
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    GoalId:
+      name: goalId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: 未登录或 token 失效
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            data: null
+            error:
+              code: UNAUTHORIZED
+              message: Unauthorized
+              details: {}
+            requestId: req_123
+    Forbidden:
+      description: 无权限访问资源
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ValidationError:
+      description: 参数校验失败
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            data: null
+            error:
+              code: VALIDATION_ERROR
+              message: Invalid request
+              details:
+                email: Invalid email
+            requestId: req_123
+    AuthCodeError:
+      description: 验证码错误或过期
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ConflictError:
+      description: 业务冲突
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    RateLimited:
+      description: 请求过于频繁
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  schemas:
+    EnvelopeBase:
+      type: object
+      required: [data, error, requestId]
+      properties:
+        data:
+          nullable: true
+        error:
+          nullable: true
+          $ref: "#/components/schemas/ErrorObject"
+        requestId:
+          type: string
+          example: req_123
+
+    EmptyEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              nullable: true
+              example: null
+
+    ErrorEnvelope:
+      type: object
+      required: [data, error, requestId]
+      properties:
+        data:
+          nullable: true
+          example: null
+        error:
+          $ref: "#/components/schemas/ErrorObject"
+        requestId:
+          type: string
+
+    ErrorObject:
+      type: object
+      nullable: true
+      required: [code, message, details]
+      properties:
+        code:
+          type: string
+          enum:
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - VALIDATION_ERROR
+            - AUTH_CODE_EXPIRED
+            - AUTH_CODE_INVALID
+            - RATE_LIMITED
+            - INVITE_CODE_INVALID
+            - RELATIONSHIP_FULL
+            - ALREADY_IN_RELATIONSHIP
+            - CHECKIN_ALREADY_EXISTS
+            - GOAL_NOT_FOUND
+            - RELATIONSHIP_INACTIVE
+            - NOT_FOUND
+            - INTERNAL_ERROR
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+    SendCodeRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+
+    SendCodeEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [cooldownSeconds]
+              properties:
+                cooldownSeconds:
+                  type: integer
+                  example: 60
+
+    LoginRequest:
+      type: object
+      required: [email, code]
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+          example: "123456"
+        inviteCode:
+          type: string
+          nullable: true
+          example: A8X2K
+
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    LogoutRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+
+    AuthEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [accessToken, refreshToken, user]
+              properties:
+                accessToken:
+                  type: string
+                refreshToken:
+                  type: string
+                user:
+                  $ref: "#/components/schemas/User"
+                relationship:
+                  nullable: true
+                  $ref: "#/components/schemas/RelationshipSummary"
+
+    TokenEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [accessToken, refreshToken]
+              properties:
+                accessToken:
+                  type: string
+                refreshToken:
+                  type: string
+
+    User:
+      type: object
+      required: [id, email, nickname, avatarUrl, timezone, locale, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        nickname:
+          type: string
+          example: ゆうた
+        avatarUrl:
+          type: string
+          nullable: true
+        timezone:
+          type: string
+          example: Asia/Shanghai
+        locale:
+          type: string
+          example: zh-CN
+        createdAt:
+          type: string
+          format: date-time
+
+    UpdateMeRequest:
+      type: object
+      properties:
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 40
+        avatarUrl:
+          type: string
+          nullable: true
+        timezone:
+          type: string
+        locale:
+          type: string
+
+    MeEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [user, settings]
+              properties:
+                user:
+                  $ref: "#/components/schemas/User"
+                settings:
+                  $ref: "#/components/schemas/UserSettings"
+                relationship:
+                  nullable: true
+                  $ref: "#/components/schemas/CurrentRelationship"
+
+    CreateRelationshipRequest:
+      type: object
+      required: [startedOn]
+      properties:
+        startedOn:
+          type: string
+          format: date
+          example: "2024-05-01"
+
+    JoinRelationshipRequest:
+      type: object
+      required: [inviteCode]
+      properties:
+        inviteCode:
+          type: string
+          minLength: 4
+          maxLength: 12
+          example: A8X2K
+
+    BreakRelationshipRequest:
+      type: object
+      required: [confirm]
+      properties:
+        confirm:
+          type: boolean
+          example: true
+
+    RelationshipSummary:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/RelationshipStatus"
+
+    Relationship:
+      allOf:
+        - $ref: "#/components/schemas/RelationshipSummary"
+        - type: object
+          required: [inviteCode, startedOn, createdAt]
+          properties:
+            inviteCode:
+              type: string
+              example: A8X2K
+            startedOn:
+              type: string
+              format: date
+            createdAt:
+              type: string
+              format: date-time
+            brokenAt:
+              type: string
+              format: date-time
+              nullable: true
+
+    CurrentRelationship:
+      allOf:
+        - $ref: "#/components/schemas/Relationship"
+        - type: object
+          required: [daysTogether, members]
+          properties:
+            daysTogether:
+              type: integer
+              example: 12
+            coupleName:
+              type: string
+              example: ゆうた & さくら
+            members:
+              type: array
+              items:
+                $ref: "#/components/schemas/RelationshipMember"
+
+    RelationshipMember:
+      type: object
+      required: [userId, nickname, avatarUrl, isMe, joinedAt]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        nickname:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+        isMe:
+          type: boolean
+        joinedAt:
+          type: string
+          format: date-time
+
+    RelationshipStatus:
+      type: string
+      enum: [pending, active, broken]
+
+    RelationshipEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Relationship"
+
+    CurrentRelationshipEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              nullable: true
+              $ref: "#/components/schemas/CurrentRelationship"
+
+    DashboardEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Dashboard"
+
+    Dashboard:
+      type: object
+      required: [relationship, members, streak]
+      properties:
+        relationship:
+          type: object
+          required: [id, coupleName, daysTogether, status]
+          properties:
+            id:
+              type: string
+              format: uuid
+            coupleName:
+              type: string
+              example: ゆうた & さくら
+            daysTogether:
+              type: integer
+              example: 12
+            status:
+              $ref: "#/components/schemas/RelationshipStatus"
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/RelationshipMember"
+        streak:
+          $ref: "#/components/schemas/Streak"
+        partnerToday:
+          nullable: true
+          $ref: "#/components/schemas/CheckinSummary"
+        goal:
+          nullable: true
+          $ref: "#/components/schemas/GoalSummary"
+
+    Streak:
+      type: object
+      required: [currentDays, todayCompletedByMe, todayCompletedByPartner]
+      properties:
+        currentDays:
+          type: integer
+          example: 5
+        todayCompletedByMe:
+          type: boolean
+        todayCompletedByPartner:
+          type: boolean
+        lastBothCompletedDate:
+          type: string
+          format: date
+          nullable: true
+
+    Mood:
+      type: string
+      enum: [happy, normal, sad]
+
+    SubmitCheckinRequest:
+      type: object
+      required: [mood]
+      properties:
+        mood:
+          $ref: "#/components/schemas/Mood"
+        note:
+          type: string
+          maxLength: 200
+          nullable: true
+          example: 今日も一緒に頑張れそう！
+
+    Checkin:
+      type: object
+      required: [id, relationshipId, userId, checkinDate, mood, note, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        relationshipId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        checkinDate:
+          type: string
+          format: date
+        mood:
+          $ref: "#/components/schemas/Mood"
+        note:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CheckinSummary:
+      type: object
+      required: [userId, mood, note, checkedInAt]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        mood:
+          $ref: "#/components/schemas/Mood"
+        note:
+          type: string
+          nullable: true
+        checkedInAt:
+          type: string
+          format: date-time
+
+    TodayCheckinEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [date, me, partner, bothCompleted, streakDays]
+              properties:
+                date:
+                  type: string
+                  format: date
+                me:
+                  nullable: true
+                  $ref: "#/components/schemas/CheckinSummary"
+                partner:
+                  nullable: true
+                  $ref: "#/components/schemas/CheckinSummary"
+                bothCompleted:
+                  type: boolean
+                streakDays:
+                  type: integer
+
+    SubmitCheckinEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [checkin, bothCompleted, streakDays]
+              properties:
+                checkin:
+                  $ref: "#/components/schemas/Checkin"
+                bothCompleted:
+                  type: boolean
+                streakDays:
+                  type: integer
+
+    DateCheckinEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [date, me, partner]
+              properties:
+                date:
+                  type: string
+                  format: date
+                me:
+                  nullable: true
+                  $ref: "#/components/schemas/CheckinSummary"
+                partner:
+                  nullable: true
+                  $ref: "#/components/schemas/CheckinSummary"
+
+    CheckinTimelineEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [items, nextCursor]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/TimelineItem"
+                nextCursor:
+                  type: string
+                  nullable: true
+
+    TimelineItem:
+      type: object
+      required: [id, checkinDate, user, mood, note, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        checkinDate:
+          type: string
+          format: date
+        user:
+          $ref: "#/components/schemas/RelationshipMember"
+        mood:
+          $ref: "#/components/schemas/Mood"
+        note:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    CalendarEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [month, days]
+              properties:
+                month:
+                  type: string
+                  example: "2024-05"
+                days:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CalendarDay"
+
+    CalendarDay:
+      type: object
+      required: [date, status, me, partner]
+      properties:
+        date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [both, me_only, partner_only, none, future]
+        me:
+          $ref: "#/components/schemas/CalendarMemberState"
+        partner:
+          $ref: "#/components/schemas/CalendarMemberState"
+
+    CalendarMemberState:
+      type: object
+      required: [checkedIn]
+      properties:
+        checkedIn:
+          type: boolean
+        mood:
+          nullable: true
+          $ref: "#/components/schemas/Mood"
+
+    GoalStatus:
+      type: string
+      enum: [active, completed, archived]
+
+    Goal:
+      type: object
+      required: [id, relationshipId, title, targetAmount, currentAmount, currency, status, coverType, progress, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        relationshipId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: 一緒に10万円貯める
+        targetAmount:
+          type: integer
+          format: int64
+          example: 100000
+        currentAmount:
+          type: integer
+          format: int64
+          example: 70000
+        currency:
+          type: string
+          example: JPY
+        status:
+          $ref: "#/components/schemas/GoalStatus"
+        coverType:
+          type: string
+          example: couple
+        progress:
+          type: number
+          format: float
+          example: 0.7
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    GoalSummary:
+      type: object
+      required: [id, title, currentAmount, targetAmount, currency, progress, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        currentAmount:
+          type: integer
+          format: int64
+        targetAmount:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        progress:
+          type: number
+          format: float
+        status:
+          $ref: "#/components/schemas/GoalStatus"
+
+    CreateGoalRequest:
+      type: object
+      required: [title, targetAmount, currency]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 60
+        targetAmount:
+          type: integer
+          format: int64
+          minimum: 1
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          example: JPY
+        coverType:
+          type: string
+          default: couple
+
+    UpdateGoalRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 60
+        targetAmount:
+          type: integer
+          format: int64
+          minimum: 1
+        coverType:
+          type: string
+
+    CurrentGoalEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              nullable: true
+              $ref: "#/components/schemas/Goal"
+
+    GoalEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Goal"
+
+    GoalEntry:
+      type: object
+      required: [id, goalId, relationshipId, userId, amountDelta, note, entryDate, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        goalId:
+          type: string
+          format: uuid
+        relationshipId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        amountDelta:
+          type: integer
+          format: int64
+          example: 2000
+        note:
+          type: string
+          nullable: true
+        entryDate:
+          type: string
+          format: date
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateGoalEntryRequest:
+      type: object
+      required: [amountDelta]
+      properties:
+        amountDelta:
+          type: integer
+          format: int64
+          minimum: 1
+        note:
+          type: string
+          maxLength: 100
+          nullable: true
+        entryDate:
+          type: string
+          format: date
+
+    GoalEntriesEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [items, nextCursor]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/GoalEntry"
+                nextCursor:
+                  type: string
+                  nullable: true
+
+    CreateGoalEntryEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [entry, goal]
+              properties:
+                entry:
+                  $ref: "#/components/schemas/GoalEntry"
+                goal:
+                  $ref: "#/components/schemas/Goal"
+
+    MessageType:
+      type: string
+      enum: [daily_word, reply, system]
+
+    Message:
+      type: object
+      required: [id, relationshipId, sender, messageDate, content, type, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        relationshipId:
+          type: string
+          format: uuid
+        sender:
+          $ref: "#/components/schemas/RelationshipMember"
+        messageDate:
+          type: string
+          format: date
+        content:
+          type: string
+        type:
+          $ref: "#/components/schemas/MessageType"
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateMessageRequest:
+      type: object
+      required: [content, type]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 500
+        type:
+          $ref: "#/components/schemas/MessageType"
+        messageDate:
+          type: string
+          format: date
+
+    MessagesEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [items, nextCursor]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Message"
+                nextCursor:
+                  type: string
+                  nullable: true
+
+    MessageEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Message"
+
+    PrivacyLevel:
+      type: string
+      enum: [default, private]
+
+    UserSettings:
+      type: object
+      required: [notificationEnabled, dailyReminderTime, privacyLevel]
+      properties:
+        notificationEnabled:
+          type: boolean
+        dailyReminderTime:
+          type: string
+          nullable: true
+          pattern: "^\\d{2}:\\d{2}$"
+          example: "20:30"
+        privacyLevel:
+          $ref: "#/components/schemas/PrivacyLevel"
+
+    UpdateSettingsRequest:
+      type: object
+      properties:
+        notificationEnabled:
+          type: boolean
+        dailyReminderTime:
+          type: string
+          nullable: true
+          pattern: "^\\d{2}:\\d{2}$"
+        privacyLevel:
+          $ref: "#/components/schemas/PrivacyLevel"
+
+    SettingsEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/UserSettings"
+
+    ExportStatus:
+      type: string
+      enum: [pending, processing, completed, failed]
+
+    ExportJob:
+      type: object
+      required: [exportId, status, createdAt]
+      properties:
+        exportId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/ExportStatus"
+        downloadUrl:
+          type: string
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    ExportJobEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ExportJob"
