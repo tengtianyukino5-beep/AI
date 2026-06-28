@@ -7,7 +7,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api/v1');
   app.enableCors({
-    origin: ['http://127.0.0.1:5173', 'http://localhost:5173'],
+    origin: [/^https:\/\/.*\.app\.github\.dev$/, 'http://127.0.0.1:5173', 'http://localhost:5173'],
     credentials: true,
   });
 
@@ -21,7 +21,7 @@ async function bootstrap() {
   SwaggerModule.setup('api-docs', app, document);
 
   const port = Number(process.env.API_PORT ?? 3000);
-  await app.listen(port, '127.0.0.1');
+  await app.listen(port, '0.0.0.0');
 }
 
 void bootstrap();

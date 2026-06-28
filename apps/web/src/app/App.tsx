@@ -111,7 +111,7 @@ const adminNav: Array<{ key: AdminPage; label: string; icon: typeof LayoutDashbo
 ];
 
 export function App() {
-  const [area, setArea] = useState<'customer' | 'admin'>('customer');
+  const [area] = useState<'customer' | 'admin'>(() => (window.location.pathname.startsWith('/admin') ? 'admin' : 'customer'));
   const [customerPage, setCustomerPage] = useState<CustomerPage>('dashboard');
   const [adminPage, setAdminPage] = useState<AdminPage>('overview');
   const [customerToken, setCustomerToken] = useState(() => localStorage.getItem('customerToken') ?? '');
@@ -205,7 +205,6 @@ export function App() {
     setAdminState(null);
   }
 
-  const showAdminSwitch = area === 'admin' || !customerToken;
   const content = area === 'customer' ? (
     <CustomerApp
       busy={busy}
@@ -235,25 +234,15 @@ export function App() {
   );
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${area === 'admin' ? 'admin-shell' : 'customer-shell'}`}>
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">AI</span>
           <div>
             <strong>AI Arbitrage Pro</strong>
-            <small>{area === 'admin' ? 'Management console' : 'AI arbitrage account'}</small>
+            <small>{area === 'admin' ? '管理后台' : 'AI裁定アカウント'}</small>
           </div>
         </div>
-        {showAdminSwitch ? (
-          <div className="area-switch" aria-label="app mode">
-            <button className={area === 'customer' ? 'active' : ''} type="button" onClick={() => setArea('customer')}>
-              日本語お客様画面
-            </button>
-            <button className={area === 'admin' ? 'active' : ''} type="button" onClick={() => setArea('admin')}>
-              管理者ログイン
-            </button>
-          </div>
-        ) : null}
       </header>
 
       {toast ? (
@@ -328,9 +317,9 @@ function CustomerAuth(props: {
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
 }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('demo@example.jp');
-  const [password, setPassword] = useState('123456');
-  const [code, setCode] = useState('888888');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
   const [inviteCode, setInviteCode] = useState('');
 
   async function submit(event: FormEvent) {
@@ -366,8 +355,8 @@ function CustomerAuth(props: {
           </div>
         </div>
         <p className="eyebrow">AI裁定 Web</p>
-        <h1>東京時間に基づくAI裁定アカウント。</h1>
-        <p>AI分析、資産変換、VIPレベル、招待報酬、裁定履歴を一つの画面で確認できます。残高は資金台帳に基づいて即時反映されます。</p>
+        <h1>東京時間に基づくAI裁定アカウント</h1>
+        <p>AI分析、資産変換、VIPレベル、招待報酬、裁定履歴を一つの画面で確認できます。処理結果と残高はリアルタイムに反映されます。</p>
         <div className="disclosure">
           <ShieldCheck size={18} />
           <span>本人確認後にAI裁定機能をご利用いただけます。</span>
@@ -407,7 +396,7 @@ function CustomerAuth(props: {
                         method: 'POST',
                         body: JSON.stringify({ email }),
                       }),
-                    '開発用コード 888888 を発行しました。',
+                    '認証コードを送信しました。',
                   )
                 }
               >
@@ -557,13 +546,22 @@ function KycPage(props: {
   refresh: (token?: string) => Promise<DashboardData>;
 }) {
   const [fullName, setFullName] = useState(props.dashboard.customer.name);
-  const [documentNo, setDocumentNo] = useState('JP-DEMO-2026');
+  const [documentNo, setDocumentNo] = useState('');
   const [licenseFile, setLicenseFile] = useState('');
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!licenseFile) {
+      await props.run(() => Promise.reject(new Error('運転免許証の表面写真をアップロードしてください。')));
+      return;
+    }
     const result = await props.run(
-      () => props.call<CustomerProfile>('/customer/kyc', { method: 'POST', body: JSON.stringify({ fullName, documentNo }) }, props.token),
+      () =>
+        props.call<CustomerProfile>(
+          '/customer/kyc',
+          { method: 'POST', body: JSON.stringify({ fullName, documentNo, documentFrontName: licenseFile }) },
+          props.token,
+        ),
       '本人確認書類を提出しました。審査完了までお待ちください。',
     );
     if (result) {
@@ -631,11 +629,15 @@ function DepositPage(props: {
       await props.run(() => Promise.reject(new Error('送金証明写真をアップロードしてください。')));
       return;
     }
+    if (!proofText.trim()) {
+      await props.run(() => Promise.reject(new Error('送金TxIDまたは受付番号を入力してください。')));
+      return;
+    }
     await props.run(
       () =>
         props.call(
           '/customer/deposits',
-          { method: 'POST', body: JSON.stringify({ asset, amount, proofText: `${proofText || 'transfer proof'} / ${proofFileName}` }) },
+          { method: 'POST', body: JSON.stringify({ asset, amount, proofText, proofImageName: proofFileName }) },
           props.token,
         ),
       '入金申請を送信しました。審査完了までお待ちください。',
@@ -814,9 +816,14 @@ function ConversionPage(props: {
           <div className="quote-card">
             <strong>{quote.path.join(' -> ')}</strong>
             <p>見積JPY：{formatJpy(quote.estimatedJpy)}</p>
-            <p>USD/JPY：{quote.snapshot.usdToJpy} / source: {quote.rateSource}</p>
-            <p>手数料：¥0 / スリッページ保護：有効 / 台帳反映：即時</p>
-            <p>{'ETH/BTC は USDT へ換算後、USDT -> USD -> JPY の順で処理されます。'}</p>
+            <div className="conversion-route">
+              {quote.path.map((step, index) => (
+                <span className="active" key={`${step}-${index}`}>{step}</span>
+              ))}
+            </div>
+            <p>暗号資産/USDT：{quote.snapshot.cryptoToUsdt} / USDT/USD：{quote.snapshot.usdtToUsd} / USD/JPY：{quote.snapshot.usdToJpy}</p>
+            <p>レート源：{rateSourceLabel(quote.rateSource)} / 手数料：¥0 / スリッページ保護：有効 / 残高反映：即時</p>
+            <p>{'ETH/BTC は USDT へ換算後、USDT -> USD -> JPY の順で処理されます。USDT は USD -> JPY の順で処理されます。'}</p>
             <p>有効期限：{formatTime(quote.expiresAt)}</p>
             <button className="primary-button" type="button" onClick={execute}>
               変換を確定
@@ -842,6 +849,7 @@ function AiPage(props: {
   refresh: (token?: string) => Promise<DashboardData>;
 }) {
   const [lastOrder, setLastOrder] = useState<SimulationOrder | null>(null);
+  const [selected, setSelected] = useState<SimulationOpportunity | null>(null);
 
   async function execute(opportunityId: string) {
     const result = await props.run(
@@ -855,6 +863,7 @@ function AiPage(props: {
     );
     if (result) {
       setLastOrder(result.order);
+      setSelected(null);
       await props.refresh();
     }
   }
@@ -877,24 +886,69 @@ function AiPage(props: {
               <p>{`${opportunity.exchanges[0]} -> ${opportunity.exchanges[1]}`}</p>
               <small>{opportunity.aiSummaryJa}</small>
               <div className="opportunity-detail-grid">
-                <span>買付参考 {formatJpy(Number(opportunity.principalJpy) * (0.996 - index * 0.0007))}</span>
-                <span>売却参考 {formatJpy(Number(opportunity.principalJpy) * (1.006 + index * 0.001))}</span>
-                <span>AI信頼度 {92 - index}%</span>
-                <span>流動性 {index % 2 === 0 ? '高' : '中高'}</span>
-                <span>予定処理 {8 + index * 2} 秒</span>
+                <span>買付参考 {formatJpy(opportunity.buyReferenceJpy)}</span>
+                <span>売却参考 {formatJpy(opportunity.sellReferenceJpy)}</span>
+                <span>AI信頼度 {opportunity.confidencePercent}%</span>
+                <span>流動性 {opportunity.liquidityScore}</span>
+                <span>予定処理 {opportunity.executionSeconds} 秒</span>
                 <span>東京日 {opportunity.businessDateTokyo}</span>
               </div>
             </div>
             <div className="opportunity-metrics">
               <span>{opportunity.spreadPercent}%</span>
               <strong>{formatJpy(opportunity.estimatedProfitJpy)}</strong>
-              <button className="primary-button" disabled={opportunity.status !== 'available'} type="button" onClick={() => void execute(opportunity.id)}>
-                分析詳細・実行
+              <button className="primary-button" disabled={opportunity.status !== 'available'} type="button" onClick={() => setSelected(opportunity)}>
+                詳細を確認
               </button>
             </div>
           </article>
         ))}
       </div>
+      {selected ? (
+        <div className="execution-result">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">AI Analysis Detail</p>
+              <h3>{selected.pair} 裁定詳細</h3>
+            </div>
+            <Search size={22} />
+          </div>
+          <div className="result-grid">
+            <span>取引所</span>
+            <strong>{`${selected.exchanges[0]} -> ${selected.exchanges[1]}`}</strong>
+            <span>対象元本</span>
+            <strong>{formatJpy(selected.principalJpy)}</strong>
+            <span>想定利益</span>
+            <strong>{formatJpy(selected.estimatedProfitJpy)}</strong>
+            <span>価格差</span>
+            <strong>{selected.spreadPercent}%</strong>
+            <span>AI信頼度</span>
+            <strong>{selected.confidencePercent}%</strong>
+            <span>流動性</span>
+            <strong>{selected.liquidityScore}</strong>
+            <span>24h変動率</span>
+            <strong>{selected.volatility24hPercent}%</strong>
+            <span>リスク</span>
+            <strong>{selected.riskLevelJa}</strong>
+            <span>東京日</span>
+            <strong>{selected.businessDateTokyo}</strong>
+          </div>
+          <p>{selected.aiSummaryJa}</p>
+          <div className="flow-steps">
+            <span className="active">1. AI分析</span>
+            <span className="active">2. 条件照合</span>
+            <span className="active">3. 利益反映</span>
+          </div>
+          <div className="row-actions">
+            <button className="primary-button" type="button" onClick={() => void execute(selected.id)}>
+              この内容で実行
+            </button>
+            <button className="ghost-button" type="button" onClick={() => setSelected(null)}>
+              閉じる
+            </button>
+          </div>
+        </div>
+      ) : null}
       {lastOrder ? (
         <div className="execution-result">
           <div className="panel-head">
@@ -1232,6 +1286,7 @@ function AdminKyc(props: {
             <div>
               <strong>{customer.email}</strong>
               <p>{customer.name} / {customer.kycStatus}</p>
+              <p>驾驶证正面：{customer.kycDocumentFrontName || '未上传'}</p>
             </div>
             <div className="row-actions">
               <button className="secondary-button" type="button" onClick={() => void action(customer.id, 'approve')}>
@@ -1270,12 +1325,13 @@ function AdminDeposits(props: {
         <Wallet size={22} />
       </div>
       <DataTable
-        columns={['单号', '客户', '资产', '数量', '状态', '操作']}
+        columns={['单号', '客户', '资产', '数量', '凭证', '状态', '操作']}
         rows={props.state.deposits.map((deposit) => [
           deposit.businessNo,
           customerEmail(props.state, deposit.customerId),
           deposit.asset,
           deposit.amount,
+          deposit.proofImageName || deposit.proofText || '未上传',
           deposit.status,
           deposit.status === 'pending' ? (
             <span className="inline-actions" key={deposit.id}>
@@ -1547,6 +1603,15 @@ function kycLabelJa(status: CustomerProfile['kycStatus']) {
     need_more_info: '追加資料',
   };
   return labels[status];
+}
+
+function rateSourceLabel(source: ConversionQuote['rateSource']) {
+  const labels: Record<ConversionQuote['rateSource'], string> = {
+    primary: '主レート源',
+    backup: '备用レート源',
+    manual: '手動レート兜底',
+  };
+  return labels[source];
 }
 
 function customerEmail(state: AdminState, customerId: string) {

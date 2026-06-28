@@ -48,7 +48,10 @@ export class AppController {
   }
 
   @Post('customer/kyc')
-  submitKyc(@Headers('authorization') authorization: string | undefined, @Body() body: { fullName: string; documentNo: string }) {
+  submitKyc(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { fullName: string; documentNo: string; documentFrontName?: string },
+  ) {
     return this.safe(() => this.appService.submitKyc(this.customer(authorization), body));
   }
 
@@ -60,7 +63,7 @@ export class AppController {
   @Post('customer/deposits')
   createDeposit(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: { asset: Exclude<Asset, 'JPY'>; amount: string; proofText: string },
+    @Body() body: { asset: Exclude<Asset, 'JPY'>; amount: string; proofText: string; proofImageName?: string },
   ) {
     return this.safe(() => this.appService.createDeposit(this.customer(authorization), body));
   }

@@ -38,6 +38,7 @@ export interface CustomerProfile {
   vipLevel: VipLevel;
   autoAiEnabled: boolean;
   inviteCode: string;
+  kycDocumentFrontName?: string;
   createdAt: string;
 }
 
@@ -65,6 +66,7 @@ export interface DepositOrder {
   amount: string;
   status: 'pending' | 'approved' | 'rejected';
   proofText: string;
+  proofImageName?: string;
   createdAt: string;
 }
 
@@ -91,6 +93,13 @@ export interface SimulationOpportunity {
   spreadPercent: string;
   principalJpy: string;
   estimatedProfitJpy: string;
+  buyReferenceJpy: string;
+  sellReferenceJpy: string;
+  confidencePercent: string;
+  liquidityScore: string;
+  volatility24hPercent: string;
+  executionSeconds: number;
+  riskLevelJa: string;
   status: 'available' | 'executed' | 'expired';
   aiSummaryJa: string;
   businessDateTokyo: string;
