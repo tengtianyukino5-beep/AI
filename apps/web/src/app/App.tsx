@@ -35,6 +35,7 @@ import type {
   DepositOrder,
   ExchangeConfig,
   LedgerEntry,
+  MarketTicker,
   SimulationOpportunity,
   SimulationOrder,
   VipLevel,
@@ -125,6 +126,16 @@ export function App() {
     if (customerToken) {
       void loadDashboard(customerToken);
     }
+  }, [customerToken]);
+
+  useEffect(() => {
+    if (!customerToken) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      void loadDashboard(customerToken);
+    }, 3500);
+    return () => window.clearInterval(timer);
   }, [customerToken]);
 
   useEffect(() => {
@@ -421,6 +432,7 @@ function CustomerAuth(props: {
 
 function CustomerHeader({ dashboard }: { dashboard: DashboardData }) {
   const jpy = balanceOf(dashboard.balances, 'JPY');
+  const strongestTicker = dashboard.marketTickers[0];
   return (
     <section className="page-head">
       <div>
@@ -436,7 +448,7 @@ function CustomerHeader({ dashboard }: { dashboard: DashboardData }) {
         <div className="market-card" aria-label="AI signal">
           <div className="market-card-top">
             <span>AI Signal</span>
-            <strong>92%</strong>
+            <strong>{dashboard.marketScanner.signalState === 'opportunity' ? 'LIVE' : 'SCAN'}</strong>
           </div>
           <div className="spark-bars" aria-hidden="true">
             {[42, 64, 51, 78, 69, 88, 74, 96].map((height, index) => (
@@ -444,8 +456,8 @@ function CustomerHeader({ dashboard }: { dashboard: DashboardData }) {
             ))}
           </div>
           <div className="market-card-bottom">
-            <span>Spread +1.84%</span>
-            <span>Liquidity High</span>
+            <span>{dashboard.marketScanner.dominantPair}</span>
+            <span>{strongestTicker ? `${strongestTicker.exchangeName} ${formatJpy(strongestTicker.lastJpy)}` : 'Market standby'}</span>
           </div>
         </div>
       </div>
@@ -482,18 +494,20 @@ function CustomerDashboard(props: {
 
   return (
     <>
+      <MarketTickerStrip tickers={dashboard.marketTickers} />
+
       <section className="metric-grid">
         <Metric icon={Wallet} label="JPY利用可能残高" value={formatJpy(jpy.available)} note={`balanceVersion ${jpy.balanceVersion}`} />
         <Metric icon={BadgeCheck} label="VIPレベル" value={dashboard.customer.vipLevel} note={`${dashboard.todayUsed}/${dashboard.todayLimit} 本日利用`} />
         <Metric icon={ShieldCheck} label="本人確認" value={kycLabelJa(dashboard.customer.kycStatus)} note={autoDisabled ? 'AI裁定はロック中' : 'AI裁定を利用できます'} />
-        <Metric icon={Gauge} label="AI算力" value={vipRule(dashboard).aiPower} note={`${vipRule(dashboard).intervalSeconds} 秒検出`} />
+        <Metric icon={Gauge} label="AI算力" value={vipRule(dashboard).aiPower} note={`${dashboard.marketScanner.fastestIntervalSeconds} - ${dashboard.marketScanner.slowestIntervalSeconds} 秒検出`} />
       </section>
 
       <section className="two-column">
-        <div className="panel">
+        <div className="panel scanner-panel">
           <div className="panel-head">
             <div>
-              <p className="eyebrow">Auto AI</p>
+              <p className="eyebrow">AI Market Scanner</p>
               <h2>自動AI裁定</h2>
             </div>
             <button className={dashboard.customer.autoAiEnabled ? 'toggle on' : 'toggle'} disabled={autoDisabled} type="button" onClick={toggleAuto}>
@@ -501,6 +515,24 @@ function CustomerDashboard(props: {
             </button>
           </div>
           <p>{autoDisabled ? '本人確認が完了していないため、自動AI裁定を利用できません。' : 'VIP設定、東京自然日、利用可能残高に基づいてAI裁定を自動実行します。'}</p>
+          <div className="scanner-grid">
+            <div>
+              <span>取引所プール</span>
+              <strong>{dashboard.marketScanner.enabledExchangeCount}</strong>
+            </div>
+            <div>
+              <span>検出ウィンドウ</span>
+              <strong>{dashboard.marketScanner.fastestIntervalSeconds}s - {dashboard.marketScanner.slowestIntervalSeconds}s</strong>
+            </div>
+            <div>
+              <span>検出中ペア</span>
+              <strong>{dashboard.marketScanner.dominantPair}</strong>
+            </div>
+            <div>
+              <span>利用可能機会</span>
+              <strong>{dashboard.marketScanner.activeOpportunityCount}</strong>
+            </div>
+          </div>
         </div>
         <div className="panel">
           <div className="panel-head">
@@ -515,6 +547,7 @@ function CustomerDashboard(props: {
               <div key={balance.asset}>
                 <span>{balance.asset}</span>
                 <strong>{balance.asset === 'JPY' ? formatJpy(balance.available) : `${balance.available} ${balance.asset}`}</strong>
+                {balance.asset !== 'JPY' ? <small>{formatJpy(estimatedAssetJpy(balance.asset, balance.available, dashboard.marketTickers))}</small> : null}
               </div>
             ))}
           </div>
@@ -535,6 +568,22 @@ function CustomerDashboard(props: {
         </p>
       </section>
     </>
+  );
+}
+
+function MarketTickerStrip({ tickers }: { tickers: MarketTicker[] }) {
+  const visible = tickers.slice(0, 8);
+  return (
+    <section className="ticker-strip" aria-label="market tickers">
+      {visible.map((ticker) => (
+        <div className="ticker-chip" key={`${ticker.exchangeId}-${ticker.pair}`}>
+          <span>{ticker.exchangeName}</span>
+          <strong>{ticker.pair}</strong>
+          <em>{formatJpy(ticker.lastJpy)}</em>
+          <small>{ticker.intervalSeconds}s / {ticker.source === 'real_api' ? 'API' : '予備'}</small>
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -739,6 +788,8 @@ function ConversionPage(props: {
   const [fromAsset, setFromAsset] = useState<Exclude<Asset, 'JPY'>>('ETH');
   const [amount, setAmount] = useState('0.2');
   const [quote, setQuote] = useState<ConversionQuote | null>(null);
+  const selectedBalance = balanceOf(props.dashboard.balances, fromAsset);
+  const liveUnitPrice = estimatedAssetJpy(fromAsset, '1', props.dashboard.marketTickers);
 
   async function createQuote(event: FormEvent) {
     event.preventDefault();
@@ -769,17 +820,27 @@ function ConversionPage(props: {
   }
 
   return (
-    <section className="two-column">
-      <form className="panel" onSubmit={createQuote}>
+    <section className="two-column conversion-workspace">
+      <form className="panel conversion-panel" onSubmit={createQuote}>
         <div className="panel-head">
           <div>
             <p className="eyebrow">Conversion</p>
-            <h2>資産をJPYへ変換</h2>
+            <h2>{fromAsset} を JPY へ変換</h2>
           </div>
           <ArrowRightLeft size={22} />
         </div>
+        <div className="pair-board">
+          <div>
+            <span>変換ペア</span>
+            <strong>{fromAsset} → JPY</strong>
+          </div>
+          <div>
+            <span>参考レート</span>
+            <strong>1 {fromAsset} = {formatJpy(liveUnitPrice)}</strong>
+          </div>
+        </div>
         <label>
-          資産
+          変換元資産
           <select value={fromAsset} onChange={(event) => setFromAsset(event.target.value as Exclude<Asset, 'JPY'>)}>
             <option value="ETH">ETH</option>
             <option value="BTC">BTC</option>
@@ -790,6 +851,11 @@ function ConversionPage(props: {
           数量
           <input value={amount} onChange={(event) => setAmount(event.target.value)} />
         </label>
+        <div className="balance-hint">
+          <span>利用可能</span>
+          <strong>{selectedBalance.available} {fromAsset}</strong>
+          <small>概算 {formatJpy(estimatedAssetJpy(fromAsset, selectedBalance.available, props.dashboard.marketTickers))}</small>
+        </div>
         <button className="primary-button" type="submit">
           見積もり取得
         </button>
@@ -807,33 +873,64 @@ function ConversionPage(props: {
           ))}
         </div>
       </form>
-      <div className="panel">
+      <div className="panel rate-panel">
         <div className="panel-head">
-          <h2>レート詳細</h2>
+          <h2>JPY受取見積</h2>
           <Clock3 size={22} />
         </div>
         {quote ? (
           <div className="quote-card">
-            <strong>{quote.path.join(' -> ')}</strong>
-            <p>見積JPY：{formatJpy(quote.estimatedJpy)}</p>
+            <div className="quote-hero">
+              <span>{quote.displayPair}</span>
+              <strong>{quote.fromAmount} {quote.fromAsset} = {formatJpy(quote.receivedJpy)}</strong>
+              <small>1 {quote.fromAsset} = {formatJpy(quote.unitPriceJpy)}</small>
+            </div>
+            <div className="quote-breakdown">
+              <div>
+                <span>概算JPY</span>
+                <strong>{formatJpy(quote.estimatedJpy)}</strong>
+              </div>
+              <div>
+                <span>手数料</span>
+                <strong>{formatJpy(quote.feeJpy)}</strong>
+              </div>
+              <div>
+                <span>受取予定</span>
+                <strong>{formatJpy(quote.receivedJpy)}</strong>
+              </div>
+            </div>
             <div className="conversion-route">
               {quote.path.map((step, index) => (
                 <span className="active" key={`${step}-${index}`}>{step}</span>
               ))}
             </div>
-            <p>暗号資産/USDT：{quote.snapshot.cryptoToUsdt} / USDT/USD：{quote.snapshot.usdtToUsd} / USD/JPY：{quote.snapshot.usdToJpy}</p>
-            <p>レート源：{rateSourceLabel(quote.rateSource)} / 手数料：¥0 / スリッページ保護：有効 / 残高反映：即時</p>
-            <p>{'ETH/BTC は USDT へ換算後、USDT -> USD -> JPY の順で処理されます。USDT は USD -> JPY の順で処理されます。'}</p>
-            <p>有効期限：{formatTime(quote.expiresAt)}</p>
+            <div className="rate-meta-grid">
+              <span>暗号資産/USDT</span>
+              <strong>{quote.snapshot.cryptoToUsdt}</strong>
+              <span>USDT/USD</span>
+              <strong>{quote.snapshot.usdtToUsd}</strong>
+              <span>USD/JPY</span>
+              <strong>{quote.snapshot.usdToJpy}</strong>
+              <span>レート源</span>
+              <strong>{rateSourceLabel(quote.rateSource)}</strong>
+              <span>更新</span>
+              <strong>{formatTime(quote.rateUpdatedAt)}</strong>
+              <span>有効期限</span>
+              <strong>{formatTime(quote.expiresAt)}</strong>
+            </div>
+            <p>{fromAsset === 'USDT' ? 'USDT は USD -> JPY の順でJPY残高へ反映されます。' : `${fromAsset} は内部換算で USDT -> USD -> JPY の順にJPY残高へ反映されます。`}</p>
             <button className="primary-button" type="button" onClick={execute}>
               変換を確定
             </button>
           </div>
         ) : (
           <div className="conversion-help">
-            <p>{'ETH/BTC は USDT に換算され、USDT -> USD -> JPY の順にJPY残高へ反映されます。'}</p>
-            <p>主レート源、备用レート源、手動レート兜底の優先順位で見積もりを作成します。</p>
-            <p>見積もり取得後、有効期限内に確定してください。</p>
+            <div className="quote-hero muted">
+              <span>{fromAsset}/JPY</span>
+              <strong>{amount || '0'} {fromAsset} ≒ {formatJpy(estimatedAssetJpy(fromAsset, amount || '0', props.dashboard.marketTickers))}</strong>
+              <small>市場レートは数秒ごとに更新されます。</small>
+            </div>
+            <p>主レート源、予備レート源、手動レート兜底の優先順位で見積もりを作成します。見積もり取得後、有効期限内に確定してください。</p>
           </div>
         )}
       </div>
@@ -869,20 +966,42 @@ function AiPage(props: {
   }
 
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <div>
-          <p className="eyebrow">AI Opportunities</p>
-          <h2>裁定機会</h2>
+    <section className="ai-workspace">
+      <div className="panel ai-command-panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">AI Market Scanner</p>
+            <h2>裁定機会</h2>
+          </div>
+          <Bot size={22} />
         </div>
-        <Bot size={22} />
+        <div className="scanner-grid">
+          <div>
+            <span>状態</span>
+            <strong>{props.dashboard.marketScanner.signalState === 'opportunity' ? '検出中' : props.dashboard.marketScanner.signalState === 'locked' ? 'ロック中' : 'スキャン中'}</strong>
+          </div>
+          <div>
+            <span>取引所</span>
+            <strong>{props.dashboard.marketScanner.enabledExchangeCount}</strong>
+          </div>
+          <div>
+            <span>最速/最遅</span>
+            <strong>{props.dashboard.marketScanner.fastestIntervalSeconds}s / {props.dashboard.marketScanner.slowestIntervalSeconds}s</strong>
+          </div>
+          <div>
+            <span>検出ペア</span>
+            <strong>{props.dashboard.marketScanner.dominantPair}</strong>
+          </div>
+        </div>
+        <MarketTickerStrip tickers={props.dashboard.marketTickers.slice(0, 6)} />
       </div>
+      <div className="panel">
       <div className="cards-list">
         {props.dashboard.opportunities.length === 0 ? <EmptyState text="現在利用可能な裁定機会はありません。" /> : null}
-        {props.dashboard.opportunities.map((opportunity, index) => (
+        {props.dashboard.opportunities.map((opportunity) => (
           <article className="opportunity-card" key={opportunity.id}>
             <div>
-              <strong>{opportunity.pair}</strong>
+              <strong>{opportunity.pair} / {opportunity.spreadPercent}%</strong>
               <p>{`${opportunity.exchanges[0]} -> ${opportunity.exchanges[1]}`}</p>
               <small>{opportunity.aiSummaryJa}</small>
               <div className="opportunity-detail-grid">
@@ -986,6 +1105,7 @@ function AiPage(props: {
           formatTime(order.createdAt),
         ])}
       />
+      </div>
     </section>
   );
 }
@@ -1221,7 +1341,7 @@ function AdminOverview({ state }: { state: AdminState }) {
         <Metric icon={ShieldCheck} label="KYC 待审核" value={state.summary.pendingKyc} note="身份认证审核" />
         <Metric icon={Wallet} label="入金待审核" value={state.summary.pendingDeposits} note="USDT/BTC/ETH" />
         <Metric icon={UserRound} label="客户总数" value={state.summary.totalCustomers} note="本地内存数据" />
-        <Metric icon={Activity} label="今日模拟利润" value={formatJpy(state.summary.simulationProfitToday)} note="东京自然日" />
+        <Metric icon={Activity} label="今日AI裁定利润" value={formatJpy(state.summary.simulationProfitToday)} note="东京自然日" />
       </section>
       <section className="panel">
         <div className="panel-head">
@@ -1439,12 +1559,20 @@ function AdminRules(props: {
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
   refresh: (token?: string) => Promise<AdminState>;
 }) {
-  async function updateExchange(exchange: ExchangeConfig, intervalSeconds: number) {
+  const [exchangeDrafts, setExchangeDrafts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(props.state.exchanges.map((exchange) => [exchange.id, String(exchange.intervalSeconds)])),
+  );
+
+  useEffect(() => {
+    setExchangeDrafts(Object.fromEntries(props.state.exchanges.map((exchange) => [exchange.id, String(exchange.intervalSeconds)])));
+  }, [props.state.exchanges]);
+
+  async function updateExchange(exchange: ExchangeConfig, intervalSeconds: number, enabled = exchange.enabled) {
     const result = await props.run(
       () =>
         props.call<AdminState>(
           `/admin/exchanges/${exchange.id}`,
-          { method: 'PATCH', body: JSON.stringify({ intervalSeconds, enabled: exchange.enabled }) },
+          { method: 'PATCH', body: JSON.stringify({ intervalSeconds, enabled }) },
           props.token,
         ),
       '交易所检测秒数已更新。',
@@ -1488,19 +1616,51 @@ function AdminRules(props: {
       </div>
       <div className="panel">
         <div className="panel-head">
-          <h2>默认内置交易所列表</h2>
+          <div>
+            <p className="eyebrow">Exchange Pool</p>
+            <h2>默认内置交易所列表</h2>
+          </div>
           <SlidersHorizontal size={22} />
         </div>
-        <div className="admin-list">
+        <div className="rule-note">
+          <strong>采样秒数规则</strong>
+          <p>0.001 秒代表几乎同步，系统不会触发裁定机会；1 秒及以上代表存在采样窗口，前台会稳定出现可判断的 AI 裁定机会。每个交易所可单独设置。</p>
+        </div>
+        <div className="admin-list exchange-admin-list">
           {props.state.exchanges.map((exchange) => (
-            <article className="admin-row" key={exchange.id}>
+            <article className="admin-row exchange-admin-row" key={exchange.id}>
               <div>
                 <strong>{exchange.name}</strong>
-                <p>{exchange.category} / {exchange.intervalSeconds} 秒</p>
+                <p>{exchange.category} / {exchange.apiProvider} / {exchange.sourcePriority} / {exchange.lastStatus}</p>
+                <small>{exchange.apiUrl || '备用行情源，等待正式公开 API 接入'}</small>
               </div>
-              <button className="secondary-button" type="button" onClick={() => void updateExchange(exchange, exchange.intervalSeconds === 2 ? 10 : 2)}>
-                切换秒数
-              </button>
+              <div className="exchange-controls">
+                <label>
+                  检测秒数
+                  <input
+                    min={exchange.minIntervalSeconds}
+                    max={exchange.maxIntervalSeconds}
+                    step="0.001"
+                    type="number"
+                    value={exchangeDrafts[exchange.id] ?? String(exchange.intervalSeconds)}
+                    onChange={(event) => setExchangeDrafts((drafts) => ({ ...drafts, [exchange.id]: event.target.value }))}
+                  />
+                </label>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => void updateExchange(exchange, Number(exchangeDrafts[exchange.id] ?? exchange.intervalSeconds))}
+                >
+                  保存
+                </button>
+                <button
+                  className={exchange.enabled ? 'ghost-button' : 'secondary-button'}
+                  type="button"
+                  onClick={() => void updateExchange(exchange, Number(exchangeDrafts[exchange.id] ?? exchange.intervalSeconds), !exchange.enabled)}
+                >
+                  {exchange.enabled ? '停用' : '启用'}
+                </button>
+              </div>
             </article>
           ))}
         </div>
@@ -1576,6 +1736,20 @@ function balanceOf(balances: AssetBalance[], asset: Asset) {
   return balances.find((balance) => balance.asset === asset) ?? { asset, available: '0', frozen: '0', balanceVersion: 0 };
 }
 
+function estimatedAssetJpy(asset: Asset, amount: string | number, tickers: MarketTicker[]) {
+  if (asset === 'JPY') {
+    return Number(amount) || 0;
+  }
+  const pair = asset === 'BTC' ? 'BTC/JPY' : asset === 'ETH' ? 'ETH/JPY' : null;
+  if (pair) {
+    const ticker = tickers.find((item) => item.pair === pair);
+    return Math.floor((Number(amount) || 0) * (Number(ticker?.lastJpy) || 0));
+  }
+  const usdt = tickers.find((item) => item.pair === 'BTC/JPY');
+  const fallbackUsdJpy = usdt ? Number(usdt.lastJpy) / 64000 : 157;
+  return Math.floor((Number(amount) || 0) * fallbackUsdJpy);
+}
+
 function vipRule(dashboard: DashboardData) {
   return dashboard.vipRules.find((rule) => rule.level === dashboard.customer.vipLevel) ?? dashboard.vipRules[0];
 }
@@ -1608,7 +1782,7 @@ function kycLabelJa(status: CustomerProfile['kycStatus']) {
 function rateSourceLabel(source: ConversionQuote['rateSource']) {
   const labels: Record<ConversionQuote['rateSource'], string> = {
     primary: '主レート源',
-    backup: '备用レート源',
+    backup: '予備レート源',
     manual: '手動レート兜底',
   };
   return labels[source];

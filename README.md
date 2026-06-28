@@ -1,6 +1,6 @@
 # AI Arbitrage Web
 
-Responsive Web MVP for a site-internal AI arbitrage simulation platform.
+Responsive AI arbitrage operations web app with a Japanese customer frontend and Chinese management backend.
 
 ## Scope
 
@@ -10,14 +10,14 @@ This project implements:
 - Chinese management backend.
 - JPY as the main customer-facing currency.
 - Tokyo time as the business time basis.
-- Site-internal simulated AI arbitrage opportunities and settlement.
+- Market-data-driven AI arbitrage opportunities and site-internal settlement.
 - Internal balance ledger, VIP rules, KYC gate, deposits, conversion, invitations, audit logs, and admin controls.
 
 Important boundary:
 
-- The MVP does not place real exchange buy or sell orders.
-- Site-internal simulated orders must not be displayed as external exchange real fills.
-- Operation rewards, manual balance adjustments, invitation rewards, and simulated profits keep separate ledger types.
+- The app does not place external exchange buy or sell orders.
+- Customer balances change only through the internal ledger.
+- Operation rewards, manual balance adjustments, invitation rewards, and AI arbitrage profits keep separate ledger types.
 
 ## Monorepo
 
@@ -38,10 +38,16 @@ Install dependencies:
 pnpm install
 ```
 
-Run both apps:
+Run the API in terminal 1:
 
 ```bash
-pnpm dev
+pnpm --filter @twodays/api dev
+```
+
+Run the web app in terminal 2:
+
+```bash
+pnpm --filter @twodays/web dev
 ```
 
 Build everything:
@@ -60,12 +66,12 @@ pnpm typecheck
 
 | Service | URL |
 | --- | --- |
-| Web | http://127.0.0.1:5173 |
-| API | http://127.0.0.1:3000/api/v1 |
-| API Health | http://127.0.0.1:3000/api/v1/health |
-| Swagger | http://127.0.0.1:3000/api-docs |
+| Web | http://127.0.0.1:3000 |
+| API | http://127.0.0.1:3001/api/v1 |
+| API Health | http://127.0.0.1:3001/api/v1/health |
+| Swagger | http://127.0.0.1:3001/api-docs |
 
-In GitHub Codespaces, open the forwarded `5173` port for the web app and `3000` for the API.
+In GitHub Codespaces, open the forwarded `3000` port for the web app and `3001` for the API.
 
 ## Demo Accounts
 

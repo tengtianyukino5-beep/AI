@@ -53,19 +53,48 @@ https://github.com/tengtianyukino5-beep/AI
 3. Click `Codespaces`.
 4. Click `Create codespace on main`.
 5. Wait for the dev container to finish.
-6. Run:
+6. Start the API in one terminal:
 
 ```bash
-pnpm dev
+pnpm --filter @twodays/api dev
 ```
+
+7. Open a second terminal and start the web app:
+
+```bash
+pnpm --filter @twodays/web dev
+```
+
+## If Codespaces Opens In Recovery Mode
+
+If you see:
+
+```text
+This codespace is currently running in recovery mode due to a configuration error.
+```
+
+Use this fix:
+
+1. Close that Codespace.
+2. Commit and push the updated `.devcontainer/devcontainer.json`.
+3. On GitHub, delete the failed Codespace.
+4. Create a new Codespace on `main`.
+
+The current dev container uses:
+
+```text
+mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm
+```
+
+It only starts Node/pnpm first. PostgreSQL and Redis can be added later after the MVP runs.
 
 ## Open Ports
 
 | Port | Service |
 | ---: | --- |
-| 5173 | Web app |
-| 3000 | API |
-| 3000/api-docs | Swagger |
+| 3000 | Web app |
+| 3001 | API |
+| 3001/api-docs | Swagger |
 | 5432 | PostgreSQL |
 | 6379 | Redis |
 
@@ -85,8 +114,8 @@ yuki888 / 123456
 
 ## Safety Boundary
 
-The MVP is a site-internal AI arbitrage simulation.
+The app uses exchange market data and an internal settlement ledger.
 
 It does not place real external exchange orders.
 
-Simulated profits, operation rewards, manual balance adjustments, and invitation rewards remain separate ledger types.
+AI arbitrage profits, operation rewards, manual balance adjustments, and invitation rewards remain separate ledger types.

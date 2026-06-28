@@ -75,8 +75,13 @@ export interface ConversionQuote {
   fromAsset: Exclude<Asset, 'JPY'>;
   fromAmount: string;
   path: string[];
+  displayPair: string;
+  unitPriceJpy: string;
   estimatedJpy: string;
+  feeJpy: string;
+  receivedJpy: string;
   rateSource: 'primary' | 'backup' | 'manual';
+  rateUpdatedAt: string;
   expiresAt: string;
   snapshot: {
     cryptoToUsdt: string;
@@ -143,6 +148,35 @@ export interface ExchangeConfig {
   minIntervalSeconds: number;
   maxIntervalSeconds: number;
   enabled: boolean;
+  apiProvider: 'bitflyer' | 'coincheck' | 'gmo_coin' | 'bitbank' | 'okcoin_japan' | 'bittrade' | 'okx' | 'htx' | 'binance' | 'fallback';
+  apiUrl?: string;
+  sourcePriority: 'primary' | 'backup' | 'manual';
+  lastStatus: 'live' | 'fallback' | 'disabled' | 'error';
+}
+
+export interface MarketTicker {
+  exchangeId: string;
+  exchangeName: string;
+  pair: 'BTC/JPY' | 'ETH/JPY';
+  bidJpy: string;
+  askJpy: string;
+  lastJpy: string;
+  spreadPercent: string;
+  source: 'real_api' | 'fallback' | 'manual';
+  intervalSeconds: number;
+  latencyMs: number;
+  sampledAt: string;
+}
+
+export interface MarketScannerSummary {
+  enabledExchangeCount: number;
+  fastestIntervalSeconds: number;
+  slowestIntervalSeconds: number;
+  opportunityThresholdSeconds: number;
+  activeOpportunityCount: number;
+  signalState: 'locked' | 'scanning' | 'opportunity';
+  dominantPair: 'BTC/JPY' | 'ETH/JPY';
+  lastScanAt: string;
 }
 
 export interface DashboardData {
@@ -152,6 +186,8 @@ export interface DashboardData {
   opportunities: SimulationOpportunity[];
   orders: SimulationOrder[];
   vipRules: VipRule[];
+  marketTickers: MarketTicker[];
+  marketScanner: MarketScannerSummary;
   todayUsed: number;
   todayLimit: number;
   tokyoNow: string;

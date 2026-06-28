@@ -1,18 +1,18 @@
 openapi: 3.0.3
 info:
-  title: TwoDays MVP API
+  title: AI Arbitrage Operations API
   version: 0.1.0
   description: |
-    情侣陪伴类 Web App MVP 接口文档。
+    AI 套利运营网站接口文档。
 
     约定：
     - 所有业务接口统一前缀为 `/api/v1`。
-    - 认证使用 Bearer JWT。
-    - 金额使用整数存储，单位由币种决定；JPY 可直接使用日元，CNY 建议使用分。
-    - 日期字段如 `checkinDate`、`messageDate`、`startedOn` 使用 `YYYY-MM-DD`。
+    - 认证使用 Bearer Token。
+    - JPY 金额使用日元整数；BTC、ETH、USDT 使用 decimal string。
+    - 东京自然日使用 Asia/Tokyo 00:00:00 - 23:59:59。
     - 时间字段使用 ISO 8601 UTC 时间字符串。
 servers:
-  - url: http://localhost:3000/api/v1
+  - url: http://localhost:3001/api/v1
     description: Local development
   - url: https://api.example.com/api/v1
     description: Production placeholder
