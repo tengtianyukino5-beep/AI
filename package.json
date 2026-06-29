@@ -5,6 +5,7 @@
   "packageManager": "pnpm@11.5.3",
   "scripts": {
     "dev": "pnpm -r --parallel dev",
+    "codespace": "node scripts/start-codespace.js",
     "build": "pnpm -r build",
     "serve:local": "node scripts/serve-local.js",
     "lint": "pnpm -r lint",
