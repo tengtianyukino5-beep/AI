@@ -105,8 +105,11 @@ export interface SimulationOpportunity {
   volatility24hPercent: string;
   executionSeconds: number;
   riskLevelJa: string;
-  status: 'available' | 'executed' | 'expired';
+  status: 'available' | 'executed' | 'expired' | 'missed';
   aiSummaryJa: string;
+  missedReasonJa?: string;
+  missedDetailJa?: string;
+  missedAt?: string;
   businessDateTokyo: string;
   createdAt: string;
 }
@@ -194,10 +197,13 @@ export interface MarketScannerSummary {
 
 export interface AutoAiRuntime {
   enabled: boolean;
-  stage: 'locked' | 'idle' | 'scanning' | 'settled' | 'limit_reached';
+  stage: 'locked' | 'idle' | 'scanning' | 'settled' | 'missed' | 'limit_reached';
   lastOrderNo?: string;
   lastProfitJpy?: string;
   lastSettledAt?: string;
+  lastMissedOpportunityId?: string;
+  lastMissedReasonJa?: string;
+  lastMissedAt?: string;
   nextRunHintJa: string;
 }
 
@@ -207,6 +213,7 @@ export interface DashboardData {
   deposits: DepositOrder[];
   ledger: LedgerEntry[];
   opportunities: SimulationOpportunity[];
+  missedOpportunities: SimulationOpportunity[];
   orders: SimulationOrder[];
   vipRules: VipRule[];
   marketTickers: MarketTicker[];

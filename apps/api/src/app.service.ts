@@ -98,8 +98,11 @@ interface SimulationOpportunity {
   volatility24hPercent: string;
   executionSeconds: number;
   riskLevelJa: string;
-  status: 'available' | 'executed' | 'expired';
+  status: 'available' | 'executed' | 'expired' | 'missed';
   aiSummaryJa: string;
+  missedReasonJa?: string;
+  missedDetailJa?: string;
+  missedAt?: string;
   businessDateTokyo: string;
   createdAt: string;
 }
@@ -187,10 +190,13 @@ interface MarketScannerSummary {
 
 interface AutoAiRuntime {
   enabled: boolean;
-  stage: 'locked' | 'idle' | 'scanning' | 'settled' | 'limit_reached';
+  stage: 'locked' | 'idle' | 'scanning' | 'settled' | 'missed' | 'limit_reached';
   lastOrderNo?: string;
   lastProfitJpy?: string;
   lastSettledAt?: string;
+  lastMissedOpportunityId?: string;
+  lastMissedReasonJa?: string;
+  lastMissedAt?: string;
   nextRunHintJa: string;
 }
 
@@ -258,7 +264,10 @@ export class AppService {
   private readonly auditLogs: AuditLog[] = [];
   private readonly inviteRewards: InviteReward[] = [];
   private readonly marketCache = new Map<string, MarketCacheEntry>();
-  private readonly autoAiRuns = new Map<string, { lastRunAt: number; lastOrderId?: string }>();
+  private readonly autoAiRuns = new Map<
+    string,
+    { lastRunAt: number; lastEvent: 'settled' | 'missed' | 'scanning'; lastOrderId?: string; lastMissedOpportunityId?: string }
+  >();
   private marketRefreshInFlight = false;
   private lastMarketRefreshStartedAt = 0;
 
@@ -464,6 +473,7 @@ export class AppService {
     this.refreshOpportunityMarket(customer, marketTickers);
     const autoAiRuntime = this.runAutoAiIfNeeded(customer, marketTickers);
     const marketScanner = this.marketScannerSummary(customer, marketTickers);
+    const displayMarketTickers = this.rotatingMarketTickers(marketTickers);
     const todayOrders = this.orders.filter(
       (order) => order.customerId === customer.id && this.tokyoDate(order.createdAt) === this.businessDateTokyo(),
     );
@@ -474,9 +484,12 @@ export class AppService {
       deposits: this.deposits.filter((item) => item.customerId === customer.id).slice(0, 12),
       ledger: this.ledger.filter((item) => item.customerId === customer.id).slice(0, 20),
       opportunities: this.opportunities.filter((item) => item.customerId === customer.id && item.status === 'available'),
+      missedOpportunities: this.opportunities
+        .filter((item) => item.customerId === customer.id && item.status === 'missed')
+        .slice(0, 10),
       orders: this.orders.filter((item) => item.customerId === customer.id),
       vipRules: this.vipRules,
-      marketTickers,
+      marketTickers: displayMarketTickers,
       marketScanner,
       autoAiRuntime,
       todayUsed: todayOrders.length,
@@ -917,7 +930,14 @@ export class AppService {
       (item) => item.customerId === customer.id && item.businessDateTokyo === today && item.status === 'available',
     );
     const rule = this.vipRule(customer.vipLevel);
-    const needed = Math.min(rule.dailyLimit, customer.autoAiEnabled ? 3 : 2) - existing.length;
+    const remainingDaily = Math.max(0, rule.dailyLimit - this.todayOrderCount(customer));
+    if (remainingDaily <= 0) {
+      existing.forEach((item) => {
+        item.status = 'expired';
+      });
+      return;
+    }
+    const needed = Math.min(remainingDaily, customer.autoAiEnabled ? 3 : 2) - existing.length;
     const rankedSignals = this.opportunitySignals(marketTickers);
     for (let i = 0; i < needed; i += 1) {
       const signal = rankedSignals[i % Math.max(1, rankedSignals.length)];
@@ -1021,13 +1041,23 @@ export class AppService {
     const runState = this.autoAiRuns.get(customer.id);
     if (!force && runState && Date.now() - runState.lastRunAt < 3500) {
       const order = runState.lastOrderId ? this.orders.find((item) => item.id === runState.lastOrderId) : undefined;
+      const missed = runState.lastMissedOpportunityId
+        ? this.opportunities.find((item) => item.id === runState.lastMissedOpportunityId)
+        : undefined;
       return {
         enabled: true,
-        stage: order ? 'settled' : 'scanning',
+        stage: runState.lastEvent === 'settled' && order ? 'settled' : runState.lastEvent === 'missed' && missed ? 'missed' : 'scanning',
         lastOrderNo: order?.businessNo,
         lastProfitJpy: order?.profitJpy,
         lastSettledAt: order?.settledAt,
-        nextRunHintJa: order ? '直近のAI裁定利益はJPY残高へ反映済みです。' : '市場シグナルを監視しています。',
+        lastMissedOpportunityId: missed?.id,
+        lastMissedReasonJa: missed?.missedReasonJa,
+        lastMissedAt: missed?.missedAt,
+        nextRunHintJa: order
+          ? '直近のAI裁定利益はJPY残高へ反映済みです。'
+          : missed
+            ? '直近の裁定機会は条件変動により見送りとなりました。詳細で確認できます。'
+            : '市場シグナルを監視しています。',
       };
     }
 
@@ -1035,7 +1065,12 @@ export class AppService {
     this.refreshOpportunityMarket(customer, marketTickers);
     const opportunity = this.opportunities.find((item) => item.customerId === customer.id && item.status === 'available');
     if (!opportunity) {
-      this.autoAiRuns.set(customer.id, { lastRunAt: Date.now(), lastOrderId: runState?.lastOrderId });
+      this.autoAiRuns.set(customer.id, {
+        lastRunAt: Date.now(),
+        lastEvent: 'scanning',
+        lastOrderId: runState?.lastOrderId,
+        lastMissedOpportunityId: runState?.lastMissedOpportunityId,
+      });
       return {
         enabled: true,
         stage: 'scanning',
@@ -1043,8 +1078,32 @@ export class AppService {
       };
     }
 
+    if (this.shouldMissOpportunity(customer, opportunity)) {
+      this.missOpportunity(customer, opportunity);
+      this.autoAiRuns.set(customer.id, {
+        lastRunAt: Date.now(),
+        lastEvent: 'missed',
+        lastOrderId: runState?.lastOrderId,
+        lastMissedOpportunityId: opportunity.id,
+      });
+      this.ensureDailyOpportunities(customer, marketTickers);
+      return {
+        enabled: true,
+        stage: 'missed',
+        lastMissedOpportunityId: opportunity.id,
+        lastMissedReasonJa: opportunity.missedReasonJa,
+        lastMissedAt: opportunity.missedAt,
+        nextRunHintJa: '市場条件が変動したため、直近の裁定機会は見送りとなりました。',
+      };
+    }
+
     const order = this.settleOpportunity(customer, opportunity, 'auto');
-    this.autoAiRuns.set(customer.id, { lastRunAt: Date.now(), lastOrderId: order.id });
+    this.autoAiRuns.set(customer.id, {
+      lastRunAt: Date.now(),
+      lastEvent: 'settled',
+      lastOrderId: order.id,
+      lastMissedOpportunityId: runState?.lastMissedOpportunityId,
+    });
     this.ensureDailyOpportunities(customer, marketTickers);
     return {
       enabled: true,
@@ -1091,6 +1150,46 @@ export class AppService {
     return order;
   }
 
+  private shouldMissOpportunity(customer: CustomerRecord, opportunity: SimulationOpportunity) {
+    const todayMissed = this.todayMissedCount(customer);
+    const todaySettled = this.todayOrderCount(customer);
+    if (todayMissed === 0 && todaySettled >= 1) {
+      return true;
+    }
+    if (todayMissed >= Math.max(1, Math.floor((todaySettled + todayMissed + 1) / 3))) {
+      return false;
+    }
+    const confidence = Number(opportunity.confidencePercent);
+    const volatility = Number(opportunity.volatility24hPercent);
+    const seed = Math.abs(Math.sin(Date.now() / 1700 + Number(opportunity.estimatedProfitJpy) / 997 + customer.id.length));
+    const missRate =
+      confidence >= 94
+        ? 0.16
+        : confidence >= 90
+          ? 0.24
+          : 0.34;
+    const volatilityPenalty = volatility >= 5 ? 0.08 : 0;
+    return seed < missRate + volatilityPenalty;
+  }
+
+  private missOpportunity(customer: CustomerRecord, opportunity: SimulationOpportunity) {
+    opportunity.status = 'missed';
+    opportunity.missedAt = this.now();
+    const reasons = [
+      '価格差が監視中に縮小したため、利益条件を満たしませんでした。',
+      '売却側の板厚が薄くなり、想定数量での処理を見送りました。',
+      '短時間の価格変動が上昇し、AIリスク条件により見送りました。',
+      '処理直前に対象ペアの流動性スコアが低下しました。',
+    ];
+    const reasonIndex = Math.abs(Math.floor(Number(opportunity.estimatedProfitJpy) + Date.now())) % reasons.length;
+    opportunity.missedReasonJa = reasons[reasonIndex];
+    opportunity.missedDetailJa =
+      `東京時間 ${this.tokyoNow()} に ${opportunity.exchanges[0]} と ${opportunity.exchanges[1]} の ${opportunity.pair} を再照合しました。` +
+      `価格差 ${opportunity.spreadPercent}%、AI信頼度 ${opportunity.confidencePercent}%、流動性 ${opportunity.liquidityScore}、24h変動率 ${opportunity.volatility24hPercent}% を確認した結果、` +
+      `${opportunity.missedReasonJa} 元本 ${this.formatJpyText(opportunity.principalJpy)} に対する想定利益 ${this.formatJpyText(opportunity.estimatedProfitJpy)} は残高へ反映されていません。`;
+    this.audit('simulation.missed', customer.email, 'simulation_opportunity', opportunity.id, opportunity.missedReasonJa);
+  }
+
   private assertDailyOrderCapacity(customer: CustomerRecord) {
     if (this.todayOrderCount(customer) >= this.vipRule(customer.vipLevel).dailyLimit) {
       throw new Error('本日のAI裁定利用上限に達しました。');
@@ -1100,6 +1199,16 @@ export class AppService {
   private todayOrderCount(customer: CustomerRecord) {
     const today = this.businessDateTokyo();
     return this.orders.filter((order) => order.customerId === customer.id && this.tokyoDate(order.createdAt) === today).length;
+  }
+
+  private todayMissedCount(customer: CustomerRecord) {
+    const today = this.businessDateTokyo();
+    return this.opportunities.filter(
+      (opportunity) =>
+        opportunity.customerId === customer.id &&
+        opportunity.status === 'missed' &&
+        this.tokyoDate(opportunity.missedAt ?? opportunity.createdAt) === today,
+    ).length;
   }
 
   private calculateProfit(rule: VipRule, principalJpy: number) {
@@ -1168,6 +1277,21 @@ export class AppService {
       });
     });
     return tickers;
+  }
+
+  private rotatingMarketTickers(tickers: MarketTicker[]) {
+    if (tickers.length <= 1) {
+      return tickers;
+    }
+    const bucket = Math.floor(Date.now() / 4500);
+    return [...tickers]
+      .map((ticker, index) => {
+        const activity = Number(ticker.spreadPercent) * 1000 + (ticker.source === 'real_api' ? 120 : 0);
+        const wave = Math.sin(bucket + index * 1.37) * 80 + Math.cos(bucket / 2 + index * 0.71) * 50;
+        return { ticker, score: activity + wave + ((bucket + index) % 7) * 9 };
+      })
+      .sort((a, b) => b.score - a.score)
+      .map((item) => item.ticker);
   }
 
   private marketTicker(exchange: ExchangeConfig, pair: MarketTicker['pair'], exchangeIndex: number, pairIndex: number): MarketTicker {
@@ -1482,6 +1606,10 @@ export class AppService {
 
   private businessNo(prefix: string) {
     return `${prefix}${this.businessDateTokyo().replaceAll('-', '')}${Math.floor(Math.random() * 900000 + 100000)}`;
+  }
+
+  private formatJpyText(value: string | number) {
+    return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(Number(value) || 0);
   }
 
   private id(prefix: string) {

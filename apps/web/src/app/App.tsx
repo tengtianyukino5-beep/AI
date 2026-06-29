@@ -610,6 +610,7 @@ function KycPage(props: {
   const [fullName, setFullName] = useState(props.dashboard.customer.name);
   const [documentNo, setDocumentNo] = useState('');
   const [licenseFile, setLicenseFile] = useState('');
+  const approved = props.dashboard.customer.kycStatus === 'approved';
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -641,6 +642,16 @@ function KycPage(props: {
         <ShieldCheck size={22} />
       </div>
       <p>現在の状態：{kycLabelJa(props.dashboard.customer.kycStatus)}</p>
+      {approved ? (
+        <div className="approval-card">
+          <CheckCircle2 size={28} />
+          <div>
+            <strong>本人確認は承認済みです</strong>
+            <p>AI裁定、資産変換、VIPアップグレードをご利用いただけます。追加提出は必要ありません。</p>
+          </div>
+        </div>
+      ) : (
+        <>
       <div className="requirement-box">
         <ShieldCheck size={18} />
         <div>
@@ -670,6 +681,8 @@ function KycPage(props: {
           本人確認を提出
         </button>
       </form>
+        </>
+      )}
     </section>
   );
 }
@@ -986,6 +999,7 @@ function AiPage(props: {
 }) {
   const [lastOrder, setLastOrder] = useState<SimulationOrder | null>(null);
   const [selected, setSelected] = useState<SimulationOpportunity | null>(null);
+  const [missedSelected, setMissedSelected] = useState<SimulationOpportunity | null>(null);
   const autoDisabled = props.dashboard.customer.kycStatus !== 'approved';
 
   async function toggleAuto() {
@@ -1048,6 +1062,19 @@ function AiPage(props: {
             </span>
           </div>
         ) : null}
+        {props.dashboard.autoAiRuntime.stage === 'missed' ? (
+          <button
+            className="runtime-banner light warning-runtime"
+            type="button"
+            onClick={() => {
+              const missed = props.dashboard.missedOpportunities.find((item) => item.id === props.dashboard.autoAiRuntime.lastMissedOpportunityId);
+              if (missed) setMissedSelected(missed);
+            }}
+          >
+            <Clock3 size={18} />
+            <span>{props.dashboard.autoAiRuntime.lastMissedReasonJa ?? '直近の裁定機会は見送りとなりました。'}</span>
+          </button>
+        ) : null}
         <div className="scanner-grid">
           <div>
             <span>状態</span>
@@ -1069,6 +1096,13 @@ function AiPage(props: {
         <MarketTickerStrip tickers={props.dashboard.marketTickers.slice(0, 6)} />
       </div>
       <div className="panel">
+      <div className="panel-head">
+        <div>
+          <p className="eyebrow">Live Opportunities</p>
+          <h2>利用可能な裁定機会</h2>
+        </div>
+        <Search size={22} />
+      </div>
       <div className="cards-list">
         {props.dashboard.opportunities.length === 0 ? <EmptyState text={props.dashboard.autoAiRuntime.stage === 'settled' ? '直近のAI裁定は処理済みです。次の市場シグナルを監視しています。' : '現在利用可能な裁定機会はありません。'} /> : null}
         {props.dashboard.opportunities.map((opportunity) => (
@@ -1139,6 +1173,62 @@ function AiPage(props: {
               閉じる
             </button>
           </div>
+        </div>
+      ) : null}
+      <h3>見送り履歴</h3>
+      <div className="cards-list compact-list">
+        {props.dashboard.missedOpportunities.length === 0 ? <EmptyState text="見送りとなった裁定機会はまだありません。" /> : null}
+        {props.dashboard.missedOpportunities.map((opportunity) => (
+          <article className="opportunity-card missed-card" key={opportunity.id}>
+            <div>
+              <strong>{opportunity.pair} / {opportunity.spreadPercent}%</strong>
+              <p>{`${opportunity.exchanges[0]} -> ${opportunity.exchanges[1]}`}</p>
+              <small>{opportunity.missedReasonJa ?? '市場条件の変動により見送りとなりました。'}</small>
+            </div>
+            <div className="opportunity-metrics">
+              <span>見送り</span>
+              <strong>{formatTime(opportunity.missedAt ?? opportunity.createdAt)}</strong>
+              <button className="ghost-button" type="button" onClick={() => setMissedSelected(opportunity)}>
+                詳細
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+      {missedSelected ? (
+        <div className="execution-result missed-detail">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Missed Opportunity</p>
+              <h3>{missedSelected.pair} 見送り詳細</h3>
+            </div>
+            <Clock3 size={22} />
+          </div>
+          <div className="result-grid">
+            <span>取引所</span>
+            <strong>{`${missedSelected.exchanges[0]} -> ${missedSelected.exchanges[1]}`}</strong>
+            <span>対象元本</span>
+            <strong>{formatJpy(missedSelected.principalJpy)}</strong>
+            <span>想定利益</span>
+            <strong>{formatJpy(missedSelected.estimatedProfitJpy)}</strong>
+            <span>価格差</span>
+            <strong>{missedSelected.spreadPercent}%</strong>
+            <span>AI信頼度</span>
+            <strong>{missedSelected.confidencePercent}%</strong>
+            <span>流動性</span>
+            <strong>{missedSelected.liquidityScore}</strong>
+            <span>見送り時刻</span>
+            <strong>{formatTime(missedSelected.missedAt ?? missedSelected.createdAt)}</strong>
+          </div>
+          <p>{missedSelected.missedDetailJa ?? missedSelected.missedReasonJa ?? missedSelected.aiSummaryJa}</p>
+          <div className="flow-steps">
+            <span className="active">1. AI検出</span>
+            <span className="active">2. 条件再照合</span>
+            <span>3. 利益反映なし</span>
+          </div>
+          <button className="ghost-button" type="button" onClick={() => setMissedSelected(null)}>
+            閉じる
+          </button>
         </div>
       ) : null}
       {lastOrder ? (
