@@ -1,8 +1,11 @@
 import { Injectable } from '@nestjs/common';
 
 type Asset = 'JPY' | 'USDT' | 'BTC' | 'ETH';
+type CryptoAsset = Exclude<Asset, 'JPY'>;
+type MarketAsset = CryptoAsset | 'XRP' | 'SOL' | 'DOT' | 'DOGE' | 'LTC' | 'MONA' | 'BCC' | 'XLM';
 type KycStatus = 'not_submitted' | 'pending' | 'approved' | 'rejected' | 'need_more_info';
 type VipLevel = 'VIP0' | 'VIP1' | 'VIP2' | 'VIP3';
+type CustomerStatus = 'active' | 'frozen' | 'disabled' | 'finance_review_required';
 type LedgerType =
   | 'deposit'
   | 'withdrawal'
@@ -26,10 +29,14 @@ interface CustomerProfile {
   id: string;
   email: string;
   name: string;
-  status: 'active' | 'frozen' | 'disabled' | 'finance_review_required';
+  status: CustomerStatus;
   kycStatus: KycStatus;
   vipLevel: VipLevel;
   autoAiEnabled: boolean;
+  creditScore: number;
+  manualDailyLimit?: number;
+  successRatePercent?: number;
+  aiRunning: boolean;
   inviteCode: string;
   kycDocumentFrontName?: string;
   createdAt: string;
@@ -55,17 +62,32 @@ interface DepositOrder {
   id: string;
   businessNo: string;
   customerId: string;
-  asset: Exclude<Asset, 'JPY'>;
+  asset: CryptoAsset;
   amount: string;
   status: 'pending' | 'approved' | 'rejected';
   proofText: string;
   proofImageName?: string;
+  proofImageDataUrl?: string;
   createdAt: string;
+}
+
+interface WithdrawalOrder {
+  id: string;
+  businessNo: string;
+  customerId: string;
+  asset: Asset;
+  amount: string;
+  status: 'pending' | 'approved' | 'rejected';
+  destinationType: 'bank' | 'wallet';
+  destinationText: string;
+  note?: string;
+  createdAt: string;
+  completedAt?: string;
 }
 
 interface ConversionQuote {
   id: string;
-  fromAsset: Exclude<Asset, 'JPY'>;
+  fromAsset: CryptoAsset;
   fromAmount: string;
   path: string[];
   displayPair: string;
@@ -88,9 +110,20 @@ interface SimulationOpportunity {
   customerId: string;
   exchanges: [string, string];
   pair: string;
+  baseAsset: MarketAsset;
   spreadPercent: string;
   principalJpy: string;
+  quantity: string;
   estimatedProfitJpy: string;
+  grossProfitJpy: string;
+  totalCostJpy: string;
+  buyFeeJpy: string;
+  sellFeeJpy: string;
+  slippageCostJpy: string;
+  riskBufferJpy: string;
+  feeRate: string;
+  slippageRate: string;
+  riskBufferRate: string;
   buyReferenceJpy: string;
   sellReferenceJpy: string;
   confidencePercent: string;
@@ -115,6 +148,9 @@ interface SimulationOrder {
   status: 'created' | 'analyzing' | 'executing' | 'settled' | 'failed' | 'cancelled';
   principalJpy: string;
   profitJpy: string;
+  grossProfitJpy?: string;
+  totalCostJpy?: string;
+  baseAsset?: MarketAsset;
   vipLevel: VipLevel;
   balanceVersionBefore: number;
   balanceVersionAfter: number;
@@ -166,7 +202,7 @@ interface ExchangeConfig {
 interface MarketTicker {
   exchangeId: string;
   exchangeName: string;
-  pair: 'BTC/JPY' | 'ETH/JPY';
+  pair: `${MarketAsset}/JPY`;
   bidJpy: string;
   askJpy: string;
   lastJpy: string;
@@ -184,7 +220,7 @@ interface MarketScannerSummary {
   opportunityThresholdSeconds: number;
   activeOpportunityCount: number;
   signalState: 'locked' | 'scanning' | 'opportunity';
-  dominantPair: 'BTC/JPY' | 'ETH/JPY';
+  dominantPair: `${MarketAsset}/JPY`;
   lastScanAt: string;
 }
 
@@ -203,6 +239,7 @@ interface AutoAiRuntime {
 interface AdminSummary {
   pendingKyc: number;
   pendingDeposits: number;
+  pendingWithdrawals: number;
   totalCustomers: number;
   totalJpy: string;
   simulationProfitToday: string;
@@ -249,6 +286,13 @@ type MarketCacheEntry = {
 
 const disclosureJa =
   'AI裁定エンジンが東京時間の市場データ、残高、VIP条件を照合し、確定した利益をJPY残高へ反映しました。処理結果は資金履歴で確認できます。';
+const balanceAssets: Asset[] = ['JPY', 'USDT', 'BTC', 'ETH'];
+const cryptoAssets: CryptoAsset[] = ['USDT', 'BTC', 'ETH'];
+const marketAssets: MarketAsset[] = ['BTC', 'ETH', 'XRP', 'SOL', 'DOT', 'DOGE', 'LTC', 'MONA', 'BCC', 'XLM'];
+const arbitrageFeeRate = 0.0015;
+const arbitrageSlippageRate = 0.001;
+const arbitrageRiskBufferRate = 0.0005;
+const defaultSuccessRatePercent = 90;
 
 @Injectable()
 export class AppService {
@@ -258,6 +302,7 @@ export class AppService {
   private readonly balances = new Map<string, Map<Asset, AssetBalance>>();
   private readonly ledger: LedgerEntry[] = [];
   private readonly deposits: DepositOrder[] = [];
+  private readonly withdrawals: WithdrawalOrder[] = [];
   private readonly quotes = new Map<string, ConversionQuote>();
   private readonly opportunities: SimulationOpportunity[] = [];
   private readonly orders: SimulationOrder[] = [];
@@ -474,14 +519,11 @@ export class AppService {
     const autoAiRuntime = this.runAutoAiIfNeeded(customer, marketTickers);
     const marketScanner = this.marketScannerSummary(customer, marketTickers);
     const displayMarketTickers = this.rotatingMarketTickers(marketTickers);
-    const todayOrders = this.orders.filter(
-      (order) => order.customerId === customer.id && this.tokyoDate(order.createdAt) === this.businessDateTokyo(),
-    );
-    const vipRule = this.vipRule(customer.vipLevel);
     return {
       customer: this.publicCustomer(customer),
       balances: this.getBalances(customer.id),
       deposits: this.deposits.filter((item) => item.customerId === customer.id).slice(0, 12),
+      withdrawals: this.withdrawals.filter((item) => item.customerId === customer.id).slice(0, 12),
       ledger: this.ledger.filter((item) => item.customerId === customer.id).slice(0, 20),
       opportunities: this.opportunities.filter((item) => item.customerId === customer.id && item.status === 'available'),
       missedOpportunities: this.opportunities
@@ -492,8 +534,8 @@ export class AppService {
       marketTickers: displayMarketTickers,
       marketScanner,
       autoAiRuntime,
-      todayUsed: todayOrders.length,
-      todayLimit: vipRule.dailyLimit,
+      todayUsed: this.todayAttemptCount(customer),
+      todayLimit: this.effectiveDailyLimit(customer),
       tokyoNow: this.tokyoNow(),
       disclosureJa,
     };
@@ -521,7 +563,7 @@ export class AppService {
     return this.dashboard(customer);
   }
 
-  createDeposit(customer: CustomerRecord, input: { asset: Exclude<Asset, 'JPY'>; amount: string; proofText: string; proofImageName?: string }) {
+  createDeposit(customer: CustomerRecord, input: { asset: CryptoAsset; amount: string; proofText: string; proofImageName?: string; proofImageDataUrl?: string }) {
     const deposit: DepositOrder = {
       id: this.id('dep'),
       businessNo: this.businessNo('DEP'),
@@ -531,6 +573,7 @@ export class AppService {
       status: 'pending',
       proofText: input.proofText || 'transfer proof',
       proofImageName: input.proofImageName,
+      proofImageDataUrl: input.proofImageDataUrl,
       createdAt: this.now(),
     };
     this.deposits.unshift(deposit);
@@ -538,7 +581,60 @@ export class AppService {
     return deposit;
   }
 
-  quoteConversion(customer: CustomerRecord, input: { fromAsset: Exclude<Asset, 'JPY'>; amount: string }) {
+  createWithdrawal(
+    customer: CustomerRecord,
+    input: { asset: Asset; amount: string; destinationType: 'bank' | 'wallet'; destinationText: string; note?: string },
+  ) {
+    if (customer.kycStatus !== 'approved') {
+      throw new Error('出金申請には本人確認が必要です。');
+    }
+    const amount = Number(input.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('出金数量を入力してください。');
+    }
+    if (!input.destinationText?.trim()) {
+      throw new Error('出金先を入力してください。');
+    }
+    const balance = this.balance(customer.id, input.asset);
+    if (Number(balance.available) < amount) {
+      throw new Error('利用可能残高が不足しています。');
+    }
+    balance.available = String(Number(balance.available) - amount);
+    balance.frozen = String(Number(balance.frozen) + amount);
+    balance.balanceVersion += 1;
+    const withdrawal: WithdrawalOrder = {
+      id: this.id('wd'),
+      businessNo: this.businessNo('WDR'),
+      customerId: customer.id,
+      asset: input.asset,
+      amount: input.amount,
+      status: 'pending',
+      destinationType: input.destinationType,
+      destinationText: input.destinationText.trim(),
+      note: input.note,
+      createdAt: this.now(),
+    };
+    this.withdrawals.unshift(withdrawal);
+    this.ledger.unshift({
+      id: this.id('led'),
+      businessNo: withdrawal.businessNo,
+      customerId: customer.id,
+      asset: input.asset,
+      ledgerType: 'withdrawal',
+      direction: 'freeze',
+      amount: input.amount,
+      balanceAfter: balance.available,
+      ledgerStatus: 'pending',
+      titleJa: '出金申請',
+      titleZh: '出金冻结',
+      note: input.destinationText,
+      createdAt: this.now(),
+    });
+    this.audit('withdrawal.create', customer.email, 'withdrawal', withdrawal.id, `${input.asset} ${input.amount}`);
+    return withdrawal;
+  }
+
+  quoteConversion(customer: CustomerRecord, input: { fromAsset: CryptoAsset; amount: string }) {
     const amount = Number(input.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error('変換数量を入力してください。');
@@ -547,8 +643,9 @@ export class AppService {
     if (Number(balance.available) < amount) {
       throw new Error('残高が不足しています。');
     }
+    const unitPriceJpy = this.assetUnitPriceJpy(input.fromAsset);
     const market = this.marketRate(input.fromAsset);
-    const estimatedJpy = Math.floor(amount * market.cryptoToUsdt * market.usdtToUsd * market.usdToJpy);
+    const estimatedJpy = Math.floor(amount * unitPriceJpy);
     const feeJpy = 0;
     const receivedJpy = estimatedJpy - feeJpy;
     const quote: ConversionQuote = {
@@ -557,7 +654,7 @@ export class AppService {
       fromAmount: input.amount,
       path: input.fromAsset === 'USDT' ? ['USDT', 'USD', 'JPY'] : [input.fromAsset, 'USDT', 'USD', 'JPY'],
       displayPair: `${input.fromAsset}/JPY`,
-      unitPriceJpy: String(Math.floor(market.cryptoToUsdt * market.usdtToUsd * market.usdToJpy)),
+      unitPriceJpy: String(unitPriceJpy),
       estimatedJpy: String(estimatedJpy),
       feeJpy: String(feeJpy),
       receivedJpy: String(receivedJpy),
@@ -622,13 +719,35 @@ export class AppService {
       throw new Error('この裁定機会は利用できません。');
     }
     this.assertDailyOrderCapacity(customer);
+    if (customer.aiRunning) {
+      throw new Error('AI裁定処理中です。完了後に再度お試しください。');
+    }
+    if (this.shouldMissOpportunity(customer, opportunity)) {
+      this.missOpportunity(customer, opportunity);
+      this.autoAiRuns.set(customer.id, {
+        lastRunAt: Date.now(),
+        lastEvent: 'missed',
+        lastMissedOpportunityId: opportunity.id,
+      });
+      return {
+        order: null,
+        missedOpportunity: opportunity,
+        dashboard: this.dashboard(customer),
+      };
+    }
     const order = this.settleOpportunity(customer, opportunity, 'manual');
     if (customer.autoAiEnabled) {
       const marketTickers = this.marketTickers();
       this.ensureDailyOpportunities(customer, marketTickers);
     }
+    this.autoAiRuns.set(customer.id, {
+      lastRunAt: Date.now(),
+      lastEvent: 'settled',
+      lastOrderId: order.id,
+    });
     return {
       order,
+      missedOpportunity: null,
       dashboard: this.dashboard(customer),
     };
   }
@@ -655,6 +774,7 @@ export class AppService {
     return {
       pendingKyc: [...this.customers.values()].filter((item) => item.kycStatus === 'pending').length,
       pendingDeposits: this.deposits.filter((item) => item.status === 'pending').length,
+      pendingWithdrawals: this.withdrawals.filter((item) => item.status === 'pending').length,
       totalCustomers: this.customers.size,
       totalJpy: String(totalJpy),
       simulationProfitToday: String(simulationProfitToday),
@@ -670,6 +790,7 @@ export class AppService {
       balances: Object.fromEntries([...this.customers.keys()].map((id) => [id, this.getBalances(id)])),
       ledger: this.ledger,
       deposits: this.deposits,
+      withdrawals: this.withdrawals,
       opportunities: this.opportunities,
       orders: this.orders,
       vipRules: this.vipRules,
@@ -724,6 +845,72 @@ export class AppService {
     return this.adminState();
   }
 
+  approveWithdrawal(withdrawalId: string, operator: string) {
+    const withdrawal = this.withdrawals.find((item) => item.id === withdrawalId);
+    if (!withdrawal) {
+      throw new Error('出金记录不存在');
+    }
+    if (withdrawal.status === 'approved') {
+      return this.adminState();
+    }
+    const balance = this.balance(withdrawal.customerId, withdrawal.asset);
+    const amount = Number(withdrawal.amount);
+    balance.frozen = String(Math.max(0, Number(balance.frozen) - amount));
+    balance.balanceVersion += 1;
+    withdrawal.status = 'approved';
+    withdrawal.completedAt = this.now();
+    this.ledger.unshift({
+      id: this.id('led'),
+      businessNo: withdrawal.businessNo,
+      customerId: withdrawal.customerId,
+      asset: withdrawal.asset,
+      ledgerType: 'withdrawal',
+      direction: 'out',
+      amount: withdrawal.amount,
+      balanceAfter: balance.available,
+      ledgerStatus: 'posted',
+      titleJa: '出金完了',
+      titleZh: '出金完成',
+      note: withdrawal.destinationText,
+      createdAt: this.now(),
+    });
+    this.audit('withdrawal.approve', operator, 'withdrawal', withdrawal.id, `${withdrawal.asset} ${withdrawal.amount}`);
+    return this.adminState();
+  }
+
+  rejectWithdrawal(withdrawalId: string, operator: string) {
+    const withdrawal = this.withdrawals.find((item) => item.id === withdrawalId);
+    if (!withdrawal) {
+      throw new Error('出金记录不存在');
+    }
+    if (withdrawal.status !== 'pending') {
+      return this.adminState();
+    }
+    const balance = this.balance(withdrawal.customerId, withdrawal.asset);
+    const amount = Number(withdrawal.amount);
+    balance.frozen = String(Math.max(0, Number(balance.frozen) - amount));
+    balance.available = String(Number(balance.available) + amount);
+    balance.balanceVersion += 1;
+    withdrawal.status = 'rejected';
+    this.ledger.unshift({
+      id: this.id('led'),
+      businessNo: withdrawal.businessNo,
+      customerId: withdrawal.customerId,
+      asset: withdrawal.asset,
+      ledgerType: 'reversal',
+      direction: 'unfreeze',
+      amount: withdrawal.amount,
+      balanceAfter: balance.available,
+      ledgerStatus: 'posted',
+      titleJa: '出金差戻し',
+      titleZh: '出金驳回返还',
+      note: withdrawal.destinationText,
+      createdAt: this.now(),
+    });
+    this.audit('withdrawal.reject', operator, 'withdrawal', withdrawal.id, '出金驳回并返还冻结余额');
+    return this.adminState();
+  }
+
   adjustCustomerBalance(
     input: { customerId: string; asset: Asset; amount: string; direction: 'credit' | 'debit'; reason: string },
     operator: string,
@@ -742,6 +929,49 @@ export class AppService {
       input.reason || '后台人工余额调整',
     );
     this.audit('balance.adjust', operator, 'customer', input.customerId, `${input.asset} ${signedAmount}`);
+    return this.adminState();
+  }
+
+  updateCustomer(
+    customerId: string,
+    input: {
+      name?: string;
+      status?: CustomerStatus;
+      vipLevel?: VipLevel;
+      creditScore?: number | string;
+      manualDailyLimit?: number | string | null;
+      successRatePercent?: number | string;
+    },
+    operator: string,
+  ) {
+    const customer = this.mustCustomer(customerId);
+    if (typeof input.name === 'string' && input.name.trim()) {
+      customer.name = input.name.trim();
+    }
+    if (input.status && ['active', 'frozen', 'disabled', 'finance_review_required'].includes(input.status)) {
+      customer.status = input.status;
+    }
+    if (input.vipLevel && ['VIP0', 'VIP1', 'VIP2', 'VIP3'].includes(input.vipLevel)) {
+      customer.vipLevel = input.vipLevel;
+    }
+    if (input.creditScore !== undefined) {
+      customer.creditScore = Math.round(this.clampNumber(Number(input.creditScore), 0, 100));
+    }
+    if (input.manualDailyLimit === null || input.manualDailyLimit === undefined || input.manualDailyLimit === '') {
+      customer.manualDailyLimit = undefined;
+    } else {
+      customer.manualDailyLimit = Math.max(0, Math.floor(Number(input.manualDailyLimit)));
+    }
+    if (input.successRatePercent !== undefined) {
+      customer.successRatePercent = Math.round(this.clampNumber(Number(input.successRatePercent), 0, 100));
+    }
+    this.audit(
+      'customer.update',
+      operator,
+      'customer',
+      customer.id,
+      `编辑客户资料：VIP=${customer.vipLevel} 信用分=${customer.creditScore} 成功率=${customer.successRatePercent ?? defaultSuccessRatePercent}% 次数=${customer.manualDailyLimit ?? this.vipRule(customer.vipLevel).dailyLimit}`,
+    );
     return this.adminState();
   }
 
@@ -820,6 +1050,9 @@ export class AppService {
       kycStatus,
       vipLevel,
       autoAiEnabled: false,
+      creditScore: 80,
+      successRatePercent: defaultSuccessRatePercent,
+      aiRunning: false,
       inviteCode: this.inviteCode(),
       campaignRewardPosted: options.campaignRewardPosted ?? false,
       invitedBy: options.invitedBy,
@@ -827,7 +1060,7 @@ export class AppService {
     };
     this.customers.set(customer.id, customer);
     const balanceMap = new Map<Asset, AssetBalance>();
-    (['JPY', 'USDT', 'BTC', 'ETH'] as Asset[]).forEach((asset) => {
+    balanceAssets.forEach((asset) => {
       balanceMap.set(asset, {
         asset,
         available: asset === 'JPY' ? String(initialJpy) : '0',
@@ -929,8 +1162,7 @@ export class AppService {
     const existing = this.opportunities.filter(
       (item) => item.customerId === customer.id && item.businessDateTokyo === today && item.status === 'available',
     );
-    const rule = this.vipRule(customer.vipLevel);
-    const remainingDaily = Math.max(0, rule.dailyLimit - this.todayOrderCount(customer));
+    const remainingDaily = Math.max(0, this.effectiveDailyLimit(customer) - this.todayAttemptCount(customer));
     if (remainingDaily <= 0) {
       existing.forEach((item) => {
         item.status = 'expired';
@@ -943,26 +1175,39 @@ export class AppService {
       const signal = rankedSignals[i % Math.max(1, rankedSignals.length)];
       const buy = signal.buy;
       const sell = signal.sell;
-      const principal = Math.max(rule.minBalanceJpy || 10000, Math.min(Number(this.balance(customer.id, 'JPY').available), 5000000));
-      const spread = Math.max(1.08, signal.spreadPercent + slowestInterval * 0.18 + i * 0.21);
-      const floatingProfit = Math.floor(Math.max(10000, principal || 10000) * Math.min(0.09, spread / 100 + 0.008));
-      const estimatedProfit = this.boundProfit(rule, principal || 10000, floatingProfit);
-      const buyReference = signal.buyTicker ? Number(signal.buyTicker.askJpy) : Math.floor(principal * (0.994 + i * 0.0006));
-      const sellReference = signal.sellTicker ? Number(signal.sellTicker.bidJpy) : Math.floor(principal * (1.006 + i * 0.0011));
-      const confidence = Math.max(86, Math.min(98, 88 + Math.round(spread * 3) - i));
-      const liquidity = `${Math.max(88, Math.min(99, 90 + Math.round(spread * 2) - i))}/100`;
-      const volatility = Math.max(1.8, Math.min(7.2, 2.1 + spread * 0.72)).toFixed(2);
-      const executionSeconds = Math.max(2, Math.min(18, Math.round(1.6 + slowestInterval + i + spread)));
+      const principal = this.arbitragePrincipalJpy(customer);
+      if (principal < 10000) {
+        return;
+      }
+      const quote = this.buildOpportunityQuote(signal, principal, slowestInterval, i);
+      if (quote.netProfitJpy <= 0) {
+        continue;
+      }
+      const confidence = Math.max(82, Math.min(98, 87 + Math.round(quote.spreadPercent * 5) - i));
+      const liquidity = `${Math.max(84, Math.min(99, 88 + Math.round(quote.spreadPercent * 4) - i))}/100`;
+      const volatility = Math.max(1.2, Math.min(6.8, 1.6 + quote.spreadPercent * 1.4)).toFixed(2);
+      const executionSeconds = Math.max(2, Math.min(18, Math.round(1.8 + slowestInterval + i + quote.spreadPercent * 2)));
       this.opportunities.unshift({
         id: this.id('opp'),
         customerId: customer.id,
         exchanges: [buy.name, sell.name],
         pair: signal.pair,
-        spreadPercent: spread.toFixed(2),
-        principalJpy: String(Math.max(10000, principal || 10000)),
-        estimatedProfitJpy: String(estimatedProfit),
-        buyReferenceJpy: String(Math.round(buyReference)),
-        sellReferenceJpy: String(Math.round(sellReference)),
+        baseAsset: this.pairAsset(signal.pair),
+        spreadPercent: quote.spreadPercent.toFixed(3),
+        principalJpy: String(principal),
+        quantity: this.formatDecimal(quote.quantity),
+        estimatedProfitJpy: String(quote.netProfitJpy),
+        grossProfitJpy: String(Math.floor(quote.grossProfitJpy)),
+        totalCostJpy: String(Math.ceil(quote.totalCostJpy)),
+        buyFeeJpy: String(Math.ceil(quote.buyFeeJpy)),
+        sellFeeJpy: String(Math.ceil(quote.sellFeeJpy)),
+        slippageCostJpy: String(Math.ceil(quote.slippageCostJpy)),
+        riskBufferJpy: String(Math.ceil(quote.riskBufferJpy)),
+        feeRate: String(arbitrageFeeRate),
+        slippageRate: String(arbitrageSlippageRate),
+        riskBufferRate: String(arbitrageRiskBufferRate),
+        buyReferenceJpy: this.formatMarketPrice(quote.buyPriceJpy),
+        sellReferenceJpy: this.formatMarketPrice(quote.sellPriceJpy),
         confidencePercent: String(confidence),
         liquidityScore: liquidity,
         volatility24hPercent: volatility,
@@ -970,7 +1215,9 @@ export class AppService {
         riskLevelJa: confidence >= 92 ? '低' : '中',
         status: 'available',
         aiSummaryJa:
-          `東京時間 ${this.tokyoNow()} 時点で、${buy.name} と ${sell.name} の ${signal.pair} 市場データ、板厚、データ鮮度、24時間変動率、VIP上限、利用可能残高を照合しました。AI信頼度は ${confidence}%、流動性スコアは ${liquidity}、処理条件は有効です。条件が維持されている間、JPY残高への利益反映対象として処理できます。`,
+          `東京時間 ${this.tokyoNow()} 時点で、${buy.name} の買付参考 ${this.formatJpyText(quote.buyPriceJpy)} と ${sell.name} の売却参考 ${this.formatJpyText(quote.sellPriceJpy)} を照合しました。` +
+          `元本 ${this.formatJpyText(principal)}、数量 ${this.formatDecimal(quote.quantity)} ${this.pairAsset(signal.pair)}、粗利益 ${this.formatJpyText(quote.grossProfitJpy)} から、` +
+          `手数料・スリッページ・リスクバッファ合計 ${this.formatJpyText(quote.totalCostJpy)} を控除し、純利益 ${this.formatJpyText(quote.netProfitJpy)} を検出しています。`,
         businessDateTokyo: today,
         createdAt: this.now(),
       });
@@ -978,7 +1225,6 @@ export class AppService {
   }
 
   private refreshOpportunityMarket(customer: CustomerRecord, marketTickers: MarketTicker[] = this.marketTickers()) {
-    const rule = this.vipRule(customer.vipLevel);
     const active = this.opportunities.filter((item) => item.customerId === customer.id && item.status === 'available');
     const enabled = this.enabledExchanges();
     const slowestInterval = enabled.reduce((max, exchange) => Math.max(max, exchange.intervalSeconds), 0);
@@ -992,26 +1238,37 @@ export class AppService {
     active.forEach((opportunity, index) => {
       const tick = Date.now() / 1000 + index * 17;
       const signal = signals.find((item) => item.pair === opportunity.pair) ?? signals[index % Math.max(1, signals.length)];
-      const wave = Math.sin(tick / 7) * 0.16 + Math.cos(tick / 11) * 0.1;
-      const spread = Math.max(1.01, signal.spreadPercent + slowestInterval * 0.18 + wave + index * 0.08);
       const principal = Number(opportunity.principalJpy);
-      const profitRatio = Math.max(0.012, Math.min(0.055, spread / 100 + 0.006));
-      const floatingProfit = Math.floor(principal * profitRatio);
-      const profit = this.boundProfit(rule, principal, floatingProfit);
-      const buyReference = signal.buyTicker ? Number(signal.buyTicker.askJpy) : Math.floor(principal * (1 - spread / 220));
-      const sellReference = signal.sellTicker ? Number(signal.sellTicker.bidJpy) : Math.floor(principal * (1 + spread / 210));
-      const confidence = Math.max(82, Math.min(98, Math.round(88 + spread * 2 + Math.sin(tick / 5) * 4)));
-      opportunity.spreadPercent = spread.toFixed(2);
-      opportunity.estimatedProfitJpy = String(profit);
-      opportunity.buyReferenceJpy = String(Math.round(buyReference));
-      opportunity.sellReferenceJpy = String(Math.round(sellReference));
+      const quote = this.buildOpportunityQuote(signal, principal, slowestInterval, index, tick);
+      const confidence = Math.max(78, Math.min(98, Math.round(86 + quote.spreadPercent * 4 + Math.sin(tick / 5) * 4)));
+      opportunity.baseAsset = this.pairAsset(signal.pair);
+      opportunity.spreadPercent = quote.spreadPercent.toFixed(3);
+      opportunity.quantity = this.formatDecimal(quote.quantity);
+      opportunity.estimatedProfitJpy = String(Math.max(0, quote.netProfitJpy));
+      opportunity.grossProfitJpy = String(Math.floor(quote.grossProfitJpy));
+      opportunity.totalCostJpy = String(Math.ceil(quote.totalCostJpy));
+      opportunity.buyFeeJpy = String(Math.ceil(quote.buyFeeJpy));
+      opportunity.sellFeeJpy = String(Math.ceil(quote.sellFeeJpy));
+      opportunity.slippageCostJpy = String(Math.ceil(quote.slippageCostJpy));
+      opportunity.riskBufferJpy = String(Math.ceil(quote.riskBufferJpy));
+      opportunity.feeRate = String(arbitrageFeeRate);
+      opportunity.slippageRate = String(arbitrageSlippageRate);
+      opportunity.riskBufferRate = String(arbitrageRiskBufferRate);
+      opportunity.buyReferenceJpy = this.formatMarketPrice(quote.buyPriceJpy);
+      opportunity.sellReferenceJpy = this.formatMarketPrice(quote.sellPriceJpy);
       opportunity.confidencePercent = String(confidence);
-      opportunity.liquidityScore = `${Math.max(84, Math.min(99, Math.round(88 + spread * 3)))}/100`;
-      opportunity.volatility24hPercent = Math.max(1.4, Math.min(6.8, 2.2 + spread * 0.8)).toFixed(2);
-      opportunity.executionSeconds = Math.max(2, Math.min(18, Math.round(1.6 + slowestInterval + index + spread)));
+      opportunity.liquidityScore = `${Math.max(82, Math.min(99, Math.round(86 + quote.spreadPercent * 4)))}/100`;
+      opportunity.volatility24hPercent = Math.max(1.2, Math.min(6.8, 1.6 + quote.spreadPercent * 1.5)).toFixed(2);
+      opportunity.executionSeconds = Math.max(2, Math.min(18, Math.round(1.8 + slowestInterval + index + quote.spreadPercent * 2)));
       opportunity.riskLevelJa = confidence >= 92 ? '低' : confidence >= 86 ? '中' : '注意';
       opportunity.aiSummaryJa =
-        `東京時間 ${this.tokyoNow()} の最新スキャンで、${opportunity.exchanges[0]} と ${opportunity.exchanges[1]} の ${opportunity.pair} 価格差は ${opportunity.spreadPercent}% に変動しました。市場データ鮮度、板厚、流動性、VIP上限、JPY残高を再評価し、AI信頼度 ${opportunity.confidencePercent}% の裁定機会として検出されています。`;
+        `東京時間 ${this.tokyoNow()} の最新スキャンで、${opportunity.exchanges[0]} と ${opportunity.exchanges[1]} の ${opportunity.pair} 価格差は ${opportunity.spreadPercent}% に変動しました。` +
+        `買付 ${this.formatJpyText(opportunity.buyReferenceJpy)}、売却 ${this.formatJpyText(opportunity.sellReferenceJpy)}、数量 ${opportunity.quantity} ${opportunity.baseAsset}、` +
+        `手数料 ${this.formatJpyText(Number(opportunity.buyFeeJpy) + Number(opportunity.sellFeeJpy))}、スリッページ ${this.formatJpyText(opportunity.slippageCostJpy)}、` +
+        `リスクバッファ ${this.formatJpyText(opportunity.riskBufferJpy)} を控除した純利益は ${this.formatJpyText(opportunity.estimatedProfitJpy)} です。`;
+      if (quote.netProfitJpy <= 0) {
+        opportunity.status = 'expired';
+      }
     });
   }
 
@@ -1030,7 +1287,14 @@ export class AppService {
         nextRunHintJa: '自動AI裁定をONにすると、検出された機会を平台内で自動処理します。',
       };
     }
-    if (this.todayOrderCount(customer) >= this.vipRule(customer.vipLevel).dailyLimit) {
+    if (customer.aiRunning) {
+      return {
+        enabled: true,
+        stage: 'scanning',
+        nextRunHintJa: 'AI裁定処理中です。完了後に次の市場シグナルを確認します。',
+      };
+    }
+    if (this.todayAttemptCount(customer) >= this.effectiveDailyLimit(customer)) {
       return {
         enabled: true,
         stage: 'limit_reached',
@@ -1117,62 +1381,67 @@ export class AppService {
 
   private settleOpportunity(customer: CustomerRecord, opportunity: SimulationOpportunity, mode: 'manual' | 'auto') {
     this.assertDailyOrderCapacity(customer);
+    if (customer.aiRunning) {
+      throw new Error('AI裁定処理中です。完了後に再度お試しください。');
+    }
     const balance = this.balance(customer.id, 'JPY');
     const beforeVersion = balance.balanceVersion;
     const profit = Number(opportunity.estimatedProfitJpy);
-    opportunity.status = 'executed';
-    const now = this.now();
-    const order: SimulationOrder = {
-      id: this.id('sim'),
-      businessNo: this.businessNo(mode === 'auto' ? 'AUTO' : 'SIM'),
-      customerId: customer.id,
-      opportunityId: opportunity.id,
-      status: 'settled',
-      principalJpy: opportunity.principalJpy,
-      profitJpy: String(profit),
-      vipLevel: customer.vipLevel,
-      balanceVersionBefore: beforeVersion,
-      balanceVersionAfter: beforeVersion + 1,
-      aiSummaryJa: opportunity.aiSummaryJa,
-      disclosureJa,
-      createdAt: now,
-      settledAt: now,
-    };
-    this.orders.unshift(order);
-    this.adjustBalance(customer.id, 'JPY', profit, 'simulation_profit', 'AI裁定利益', mode === 'auto' ? '自动AI裁定利润' : '手动AI裁定利润');
-    this.audit(
-      mode === 'auto' ? 'simulation.auto_settle' : 'simulation.settle',
-      customer.email,
-      'simulation_order',
-      order.id,
-      `平台内部AI裁定结算利润 ¥${profit}`,
-    );
-    return order;
+    if (!Number.isFinite(profit) || profit <= 0) {
+      this.missOpportunity(customer, opportunity, '純利益が手数料・スリッページ・リスクバッファを下回ったため、処理を見送りました。');
+      throw new Error('この裁定機会は純利益条件を満たしていません。');
+    }
+    customer.aiRunning = true;
+    try {
+      opportunity.status = 'executed';
+      const now = this.now();
+      const order: SimulationOrder = {
+        id: this.id('sim'),
+        businessNo: this.businessNo(mode === 'auto' ? 'AUTO' : 'SIM'),
+        customerId: customer.id,
+        opportunityId: opportunity.id,
+        status: 'settled',
+        principalJpy: opportunity.principalJpy,
+        profitJpy: String(profit),
+        grossProfitJpy: opportunity.grossProfitJpy,
+        totalCostJpy: opportunity.totalCostJpy,
+        baseAsset: opportunity.baseAsset,
+        vipLevel: customer.vipLevel,
+        balanceVersionBefore: beforeVersion,
+        balanceVersionAfter: beforeVersion + 1,
+        aiSummaryJa: opportunity.aiSummaryJa,
+        disclosureJa,
+        createdAt: now,
+        settledAt: now,
+      };
+      this.orders.unshift(order);
+      this.adjustBalance(customer.id, 'JPY', profit, 'simulation_profit', 'AI裁定利益', mode === 'auto' ? '自动AI裁定利润' : '手动AI裁定利润');
+      this.audit(
+        mode === 'auto' ? 'simulation.auto_settle' : 'simulation.settle',
+        customer.email,
+        'simulation_order',
+        order.id,
+        `平台内部AI裁定结算利润 ¥${profit}`,
+      );
+      return order;
+    } finally {
+      customer.aiRunning = false;
+    }
   }
 
   private shouldMissOpportunity(customer: CustomerRecord, opportunity: SimulationOpportunity) {
     const todayMissed = this.todayMissedCount(customer);
     const todaySettled = this.todayOrderCount(customer);
-    if (todayMissed === 0 && todaySettled >= 1) {
+    if (Number(opportunity.estimatedProfitJpy) <= 0) {
       return true;
     }
-    if (todayMissed >= Math.max(1, Math.floor((todaySettled + todayMissed + 1) / 3))) {
-      return false;
-    }
-    const confidence = Number(opportunity.confidencePercent);
-    const volatility = Number(opportunity.volatility24hPercent);
-    const seed = Math.abs(Math.sin(Date.now() / 1700 + Number(opportunity.estimatedProfitJpy) / 997 + customer.id.length));
-    const missRate =
-      confidence >= 94
-        ? 0.16
-        : confidence >= 90
-          ? 0.24
-          : 0.34;
-    const volatilityPenalty = volatility >= 5 ? 0.08 : 0;
-    return seed < missRate + volatilityPenalty;
+    const successRate = this.clampNumber(customer.successRatePercent ?? defaultSuccessRatePercent, 0, 100);
+    const attemptNumber = todaySettled + todayMissed + 1;
+    const expectedFailures = Math.floor((attemptNumber * (100 - successRate)) / 100);
+    return todayMissed < expectedFailures;
   }
 
-  private missOpportunity(customer: CustomerRecord, opportunity: SimulationOpportunity) {
+  private missOpportunity(customer: CustomerRecord, opportunity: SimulationOpportunity, overrideReason?: string) {
     opportunity.status = 'missed';
     opportunity.missedAt = this.now();
     const reasons = [
@@ -1182,16 +1451,18 @@ export class AppService {
       '処理直前に対象ペアの流動性スコアが低下しました。',
     ];
     const reasonIndex = Math.abs(Math.floor(Number(opportunity.estimatedProfitJpy) + Date.now())) % reasons.length;
-    opportunity.missedReasonJa = reasons[reasonIndex];
+    opportunity.missedReasonJa = overrideReason ?? reasons[reasonIndex];
     opportunity.missedDetailJa =
       `東京時間 ${this.tokyoNow()} に ${opportunity.exchanges[0]} と ${opportunity.exchanges[1]} の ${opportunity.pair} を再照合しました。` +
-      `価格差 ${opportunity.spreadPercent}%、AI信頼度 ${opportunity.confidencePercent}%、流動性 ${opportunity.liquidityScore}、24h変動率 ${opportunity.volatility24hPercent}% を確認した結果、` +
-      `${opportunity.missedReasonJa} 元本 ${this.formatJpyText(opportunity.principalJpy)} に対する想定利益 ${this.formatJpyText(opportunity.estimatedProfitJpy)} は残高へ反映されていません。`;
+      `価格差 ${opportunity.spreadPercent}%、買付 ${this.formatJpyText(opportunity.buyReferenceJpy)}、売却 ${this.formatJpyText(opportunity.sellReferenceJpy)}、` +
+      `手数料 ${this.formatJpyText(Number(opportunity.buyFeeJpy) + Number(opportunity.sellFeeJpy))}、スリッページ ${this.formatJpyText(opportunity.slippageCostJpy)}、` +
+      `リスクバッファ ${this.formatJpyText(opportunity.riskBufferJpy)} を確認した結果、${opportunity.missedReasonJa} ` +
+      `元本 ${this.formatJpyText(opportunity.principalJpy)} に対する想定純利益 ${this.formatJpyText(opportunity.estimatedProfitJpy)} は残高へ反映されていません。`;
     this.audit('simulation.missed', customer.email, 'simulation_opportunity', opportunity.id, opportunity.missedReasonJa);
   }
 
   private assertDailyOrderCapacity(customer: CustomerRecord) {
-    if (this.todayOrderCount(customer) >= this.vipRule(customer.vipLevel).dailyLimit) {
+    if (this.todayAttemptCount(customer) >= this.effectiveDailyLimit(customer)) {
       throw new Error('本日のAI裁定利用上限に達しました。');
     }
   }
@@ -1211,17 +1482,63 @@ export class AppService {
     ).length;
   }
 
-  private calculateProfit(rule: VipRule, principalJpy: number) {
-    const high = Math.random() * 100 < rule.highProfitProbability;
-    const min = high ? rule.highProfitThresholdJpy : rule.profitFloorJpy;
-    const max = rule.profitCapJpy;
-    const amount = Math.floor(min + Math.random() * Math.max(1, max - min));
-    return Math.max(rule.profitFloorJpy, Math.min(amount, Math.floor(principalJpy * 0.28), rule.profitCapJpy));
+  private todayAttemptCount(customer: CustomerRecord) {
+    return this.todayOrderCount(customer) + this.todayMissedCount(customer);
   }
 
-  private boundProfit(rule: VipRule, principalJpy: number, requestedProfit: number) {
-    const proportionalCap = Math.max(rule.profitFloorJpy, Math.floor(principalJpy * 0.28));
-    return Math.max(rule.profitFloorJpy, Math.min(Math.floor(requestedProfit), proportionalCap, rule.profitCapJpy));
+  private effectiveDailyLimit(customer: CustomerRecord) {
+    const manual = Number(customer.manualDailyLimit);
+    if (Number.isFinite(manual) && manual >= 0) {
+      return Math.floor(manual);
+    }
+    return this.vipRule(customer.vipLevel).dailyLimit;
+  }
+
+  private arbitragePrincipalJpy(customer: CustomerRecord) {
+    const available = Math.floor(Number(this.balance(customer.id, 'JPY').available));
+    if (!Number.isFinite(available) || available <= 0) {
+      return 0;
+    }
+    return Math.max(0, Math.min(available, 5000000));
+  }
+
+  private buildOpportunityQuote(
+    signal: ReturnType<AppService['opportunitySignals']>[number],
+    principalJpy: number,
+    slowestIntervalSeconds: number,
+    index: number,
+    tick = Date.now() / 1000 + index * 19,
+  ) {
+    const baseBuy = Number(signal.buyTicker?.askJpy) || this.assetUnitPriceJpy(this.pairAsset(signal.pair));
+    const observedSpread = Math.max(0, signal.spreadPercent);
+    const intervalSpread = slowestIntervalSeconds < 1 ? 0 : Math.min(1.35, 0.48 + slowestIntervalSeconds * 0.12);
+    const marketSpread = Math.max(observedSpread * 0.35, intervalSpread);
+    const wave = Math.sin(tick / 7 + index) * 0.055 + Math.cos(tick / 11 + index * 0.3) * 0.035;
+    const spreadPercent = this.clampNumber(marketSpread + wave + index * 0.03, 0.05, 1.15);
+    const buyPriceJpy = Math.max(0.0001, baseBuy);
+    const sellPriceJpy = Math.max(buyPriceJpy, buyPriceJpy * (1 + spreadPercent / 100));
+    const quantity = principalJpy / buyPriceJpy;
+    const grossSellJpy = quantity * sellPriceJpy;
+    const grossProfitJpy = grossSellJpy - principalJpy;
+    const buyFeeJpy = principalJpy * arbitrageFeeRate;
+    const sellFeeJpy = grossSellJpy * arbitrageFeeRate;
+    const slippageCostJpy = principalJpy * arbitrageSlippageRate;
+    const riskBufferJpy = principalJpy * arbitrageRiskBufferRate;
+    const totalCostJpy = buyFeeJpy + sellFeeJpy + slippageCostJpy + riskBufferJpy;
+    const netProfitJpy = Math.max(0, Math.floor(grossProfitJpy - totalCostJpy));
+    return {
+      buyPriceJpy,
+      sellPriceJpy,
+      quantity,
+      grossProfitJpy,
+      buyFeeJpy,
+      sellFeeJpy,
+      slippageCostJpy,
+      riskBufferJpy,
+      totalCostJpy,
+      netProfitJpy,
+      spreadPercent,
+    };
   }
 
   private marketScannerSummary(customer: CustomerRecord, marketTickers: MarketTicker[]): MarketScannerSummary {
@@ -1230,10 +1547,12 @@ export class AppService {
     const activeOpportunityCount = this.opportunities.filter((item) => item.customerId === customer.id && item.status === 'available').length;
     const fastestIntervalSeconds = intervals.length ? Math.min(...intervals) : 0;
     const slowestIntervalSeconds = intervals.length ? Math.max(...intervals) : 0;
-    const btcSignals = marketTickers.filter((ticker) => ticker.pair === 'BTC/JPY');
-    const ethSignals = marketTickers.filter((ticker) => ticker.pair === 'ETH/JPY');
-    const btcSpread = this.marketSpread(btcSignals);
-    const ethSpread = this.marketSpread(ethSignals);
+    const dominant = marketAssets
+      .map((asset) => {
+        const pair = `${asset}/JPY` as MarketTicker['pair'];
+        return { pair, spread: this.marketSpread(marketTickers.filter((ticker) => ticker.pair === pair)) };
+      })
+      .sort((a, b) => b.spread - a.spread)[0];
     return {
       enabledExchangeCount: enabled.length,
       fastestIntervalSeconds,
@@ -1241,13 +1560,13 @@ export class AppService {
       opportunityThresholdSeconds: 1,
       activeOpportunityCount,
       signalState: customer.kycStatus !== 'approved' ? 'locked' : activeOpportunityCount > 0 ? 'opportunity' : 'scanning',
-      dominantPair: btcSpread >= ethSpread ? 'BTC/JPY' : 'ETH/JPY',
+      dominantPair: dominant?.pair ?? 'BTC/JPY',
       lastScanAt: this.now(),
     };
   }
 
   private opportunitySignals(marketTickers: MarketTicker[]) {
-    const pairs: Array<'BTC/JPY' | 'ETH/JPY'> = ['BTC/JPY', 'ETH/JPY'];
+    const pairs = marketAssets.map((asset) => `${asset}/JPY` as MarketTicker['pair']);
     return pairs
       .map((pair) => {
         const tickers = marketTickers.filter((ticker) => ticker.pair === pair);
@@ -1272,7 +1591,7 @@ export class AppService {
   private marketTickers(): MarketTicker[] {
     const tickers: MarketTicker[] = [];
     this.exchanges.forEach((exchange, exchangeIndex) => {
-      (['BTC/JPY', 'ETH/JPY'] as const).forEach((pair, pairIndex) => {
+      marketAssets.map((asset) => `${asset}/JPY` as MarketTicker['pair']).forEach((pair, pairIndex) => {
         tickers.push(this.marketTicker(exchange, pair, exchangeIndex, pairIndex));
       });
     });
@@ -1294,6 +1613,10 @@ export class AppService {
       .map((item) => item.ticker);
   }
 
+  private pairAsset(pair: MarketTicker['pair']): MarketAsset {
+    return pair.split('/')[0] as MarketAsset;
+  }
+
   private marketTicker(exchange: ExchangeConfig, pair: MarketTicker['pair'], exchangeIndex: number, pairIndex: number): MarketTicker {
     if (!exchange.enabled) {
       exchange.lastStatus = 'disabled';
@@ -1303,7 +1626,7 @@ export class AppService {
       exchange.lastStatus = 'live';
     }
     const second = Date.now() / 1000;
-    const base = pair === 'BTC/JPY' ? this.assetUnitPriceJpy('BTC') : this.assetUnitPriceJpy('ETH');
+    const base = this.assetUnitPriceJpy(this.pairAsset(pair));
     const intervalImpact = exchange.intervalSeconds < 1 ? exchange.intervalSeconds * 0.00008 : 0.0012 + exchange.intervalSeconds * 0.0018;
     const direction = exchangeIndex % 2 === 0 ? -1 : 1;
     const cached = this.marketCache.get(`${exchange.id}:${pair}`);
@@ -1313,12 +1636,12 @@ export class AppService {
       direction * intervalImpact;
     const latencyMs = Math.round(8 + exchange.intervalSeconds * 1000 + exchangeIndex * 17 + pairIndex * 11);
     const rawLast = cached?.lastJpy ?? base;
-    const last = Math.max(1, Math.round(rawLast * (1 + drift)));
+    const last = this.normalizeMarketPrice(rawLast * (1 + drift));
     const spreadPadding = Math.max(0.00018, intervalImpact * 0.28);
     const cachedBid = cached ? cached.bidJpy * (1 + drift) : last * (1 - spreadPadding);
     const cachedAsk = cached ? cached.askJpy * (1 + drift) : last * (1 + spreadPadding);
-    const bid = Math.round(cachedBid * (1 - spreadPadding));
-    const ask = Math.round(cachedAsk * (1 + spreadPadding));
+    const bid = this.normalizeMarketPrice(cachedBid * (1 - spreadPadding));
+    const ask = this.normalizeMarketPrice(cachedAsk * (1 + spreadPadding));
     const source = !exchange.enabled ? 'manual' : cached?.source ?? (exchange.apiUrl ? 'fallback' : 'fallback');
     if (exchange.enabled) {
       exchange.lastStatus = source === 'real_api' ? 'live' : 'fallback';
@@ -1327,9 +1650,9 @@ export class AppService {
       exchangeId: exchange.id,
       exchangeName: exchange.name,
       pair,
-      bidJpy: String(bid),
-      askJpy: String(ask),
-      lastJpy: String(last),
+      bidJpy: this.formatMarketPrice(bid),
+      askJpy: this.formatMarketPrice(ask),
+      lastJpy: this.formatMarketPrice(last),
       spreadPercent: (((ask - bid) / Math.max(1, last)) * 100).toFixed(3),
       source,
       intervalSeconds: exchange.intervalSeconds,
@@ -1351,9 +1674,9 @@ export class AppService {
     return this.exchanges.filter((exchange) => exchange.enabled);
   }
 
-  private assetUnitPriceJpy(asset: Exclude<Asset, 'JPY'>) {
+  private assetUnitPriceJpy(asset: MarketAsset) {
     const market = this.marketRate(asset);
-    return Math.floor(market.cryptoToUsdt * market.usdtToUsd * market.usdToJpy);
+    return this.normalizeMarketPrice(market.cryptoToUsdt * market.usdtToUsd * market.usdToJpy);
   }
 
   private async refreshExternalMarkets(force = false) {
@@ -1366,7 +1689,7 @@ export class AppService {
       const enabled = this.enabledExchanges().filter((exchange) => exchange.apiUrl);
       await Promise.allSettled(
         enabled.flatMap((exchange) =>
-          (['BTC/JPY', 'ETH/JPY'] as const).map(async (pair) => {
+          marketAssets.map((asset) => `${asset}/JPY` as MarketTicker['pair']).map(async (pair) => {
             const ticker = await this.fetchExternalTicker(exchange, pair);
             exchange.lastCheckedAt = this.now();
             if (ticker) {
@@ -1407,28 +1730,31 @@ export class AppService {
   }
 
   private marketApiUrl(exchange: ExchangeConfig, pair: MarketTicker['pair']) {
-    const symbol = pair === 'BTC/JPY' ? 'BTC' : 'ETH';
+    const symbol = this.pairAsset(pair);
+    const commonUsdtAssets: MarketAsset[] = ['BTC', 'ETH', 'XRP', 'SOL', 'DOT', 'DOGE', 'LTC', 'XLM'];
+    const bitbankAssets: MarketAsset[] = ['BTC', 'ETH', 'XRP', 'LTC', 'MONA', 'BCC', 'XLM'];
+    const japanCoreAssets: MarketAsset[] = ['BTC', 'ETH', 'XRP', 'LTC'];
     switch (exchange.apiProvider) {
       case 'bitflyer':
-        return `https://api.bitflyer.com/v1/ticker?product_code=${symbol}_JPY`;
+        return symbol === 'BTC' || symbol === 'ETH' ? `https://api.bitflyer.com/v1/ticker?product_code=${symbol}_JPY` : undefined;
       case 'coincheck':
         return pair === 'BTC/JPY' ? 'https://coincheck.com/api/ticker' : undefined;
       case 'gmo_coin':
-        return `https://api.coin.z.com/public/v1/ticker?symbol=${symbol}`;
+        return japanCoreAssets.includes(symbol) ? `https://api.coin.z.com/public/v1/ticker?symbol=${symbol}` : undefined;
       case 'bitbank':
-        return `https://public.bitbank.cc/${symbol.toLowerCase()}_jpy/ticker`;
+        return bitbankAssets.includes(symbol) ? `https://public.bitbank.cc/${symbol.toLowerCase()}_jpy/ticker` : undefined;
       case 'okcoin_japan':
-        return `https://www.okcoin.jp/api/spot/v3/instruments/${symbol}-JPY/ticker`;
+        return japanCoreAssets.includes(symbol) ? `https://www.okcoin.jp/api/spot/v3/instruments/${symbol}-JPY/ticker` : undefined;
       case 'bitpoint':
-        return `https://api.bitpoint.co.jp/bpj-ex-api/api/v1/ticker?symbol=${symbol}JPY`;
+        return japanCoreAssets.includes(symbol) ? `https://api.bitpoint.co.jp/bpj-ex-api/api/v1/ticker?symbol=${symbol}JPY` : undefined;
       case 'bittrade':
-        return `https://api-cloud.bittrade.co.jp/market/detail/merged?symbol=${symbol.toLowerCase()}jpy`;
+        return bitbankAssets.includes(symbol) ? `https://api-cloud.bittrade.co.jp/market/detail/merged?symbol=${symbol.toLowerCase()}jpy` : undefined;
       case 'okx':
-        return `https://www.okx.com/api/v5/market/ticker?instId=${symbol}-USDT`;
+        return commonUsdtAssets.includes(symbol) ? `https://www.okx.com/api/v5/market/ticker?instId=${symbol}-USDT` : undefined;
       case 'htx':
-        return `https://api.huobi.pro/market/detail/merged?symbol=${symbol.toLowerCase()}usdt`;
+        return commonUsdtAssets.includes(symbol) ? `https://api.huobi.pro/market/detail/merged?symbol=${symbol.toLowerCase()}usdt` : undefined;
       case 'binance':
-        return `https://api.binance.com/api/v3/ticker/bookTicker?symbol=${symbol}USDT`;
+        return commonUsdtAssets.includes(symbol) ? `https://api.binance.com/api/v3/ticker/bookTicker?symbol=${symbol}USDT` : undefined;
       default:
         return exchange.apiUrl;
     }
@@ -1499,7 +1825,7 @@ export class AppService {
       ask = ask ? ask * usdToJpy : undefined;
       last = last ? last * usdToJpy : undefined;
     }
-    if (pair === 'ETH/JPY' && provider === 'coincheck') {
+    if (provider === 'coincheck' && pair !== 'BTC/JPY') {
       return null;
     }
     if (!bid || !ask || !last) {
@@ -1529,14 +1855,29 @@ export class AppService {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
   }
 
-  private marketRate(asset: Exclude<Asset, 'JPY'>) {
+  private clampNumber(value: number, min: number, max: number) {
+    if (!Number.isFinite(value)) {
+      return min;
+    }
+    return Math.min(max, Math.max(min, value));
+  }
+
+  private marketRate(asset: MarketAsset) {
     const second = Math.floor(Date.now() / 1000);
     const wave = 1 + Math.sin(second / 13) * 0.0025 + Math.cos(second / 29) * 0.0018;
     const usdToJpy = 157.42 + Math.sin(second / 31) * 0.42;
-    const baseUsdt: Record<Exclude<Asset, 'JPY'>, number> = {
+    const baseUsdt: Record<MarketAsset, number> = {
       ETH: 3200,
       BTC: 64000,
       USDT: 1,
+      XRP: 0.62,
+      SOL: 148,
+      DOT: 6.8,
+      DOGE: 0.12,
+      LTC: 84,
+      MONA: 0.32,
+      BCC: 410,
+      XLM: 0.11,
     };
     return {
       cryptoToUsdt: Number((baseUsdt[asset] * wave).toFixed(asset === 'USDT' ? 4 : 2)),
@@ -1610,6 +1951,23 @@ export class AppService {
 
   private formatJpyText(value: string | number) {
     return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(Number(value) || 0);
+  }
+
+  private normalizeMarketPrice(value: number) {
+    if (!Number.isFinite(value) || value <= 0) {
+      return 1;
+    }
+    if (value >= 1000) {
+      return Math.round(value);
+    }
+    if (value >= 10) {
+      return Math.round(value * 100) / 100;
+    }
+    return Math.round(value * 10000) / 10000;
+  }
+
+  private formatMarketPrice(value: number) {
+    return this.normalizeMarketPrice(value).toString();
   }
 
   private id(prefix: string) {

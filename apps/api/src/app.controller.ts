@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 
 type Asset = 'JPY' | 'USDT' | 'BTC' | 'ETH';
 type VipLevel = 'VIP0' | 'VIP1' | 'VIP2' | 'VIP3';
+type CustomerStatus = 'active' | 'frozen' | 'disabled' | 'finance_review_required';
 
 interface ApiResponse<T> {
   code: string;
@@ -63,9 +64,17 @@ export class AppController {
   @Post('customer/deposits')
   createDeposit(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: { asset: Exclude<Asset, 'JPY'>; amount: string; proofText: string; proofImageName?: string },
+    @Body() body: { asset: Exclude<Asset, 'JPY'>; amount: string; proofText: string; proofImageName?: string; proofImageDataUrl?: string },
   ) {
     return this.safe(() => this.appService.createDeposit(this.customer(authorization), body));
+  }
+
+  @Post('customer/withdrawals')
+  createWithdrawal(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { asset: Asset; amount: string; destinationType: 'bank' | 'wallet'; destinationText: string; note?: string },
+  ) {
+    return this.safe(() => this.appService.createWithdrawal(this.customer(authorization), body));
   }
 
   @Post('customer/conversions/quote')
@@ -124,12 +133,39 @@ export class AppController {
     return this.safe(() => this.appService.rejectDeposit(depositId, this.admin(authorization)));
   }
 
+  @Post('admin/withdrawals/:withdrawalId/approve')
+  approveWithdrawal(@Headers('authorization') authorization: string | undefined, @Param('withdrawalId') withdrawalId: string) {
+    return this.safe(() => this.appService.approveWithdrawal(withdrawalId, this.admin(authorization)));
+  }
+
+  @Post('admin/withdrawals/:withdrawalId/reject')
+  rejectWithdrawal(@Headers('authorization') authorization: string | undefined, @Param('withdrawalId') withdrawalId: string) {
+    return this.safe(() => this.appService.rejectWithdrawal(withdrawalId, this.admin(authorization)));
+  }
+
   @Post('admin/balances/adjust')
   adjustCustomerBalance(
     @Headers('authorization') authorization: string | undefined,
     @Body() body: { customerId: string; asset: Asset; amount: string; direction: 'credit' | 'debit'; reason: string },
   ) {
     return this.safe(() => this.appService.adjustCustomerBalance(body, this.admin(authorization)));
+  }
+
+  @Patch('admin/customers/:customerId')
+  updateCustomer(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('customerId') customerId: string,
+    @Body()
+    body: {
+      name?: string;
+      status?: CustomerStatus;
+      vipLevel?: VipLevel;
+      creditScore?: number | string;
+      manualDailyLimit?: number | string | null;
+      successRatePercent?: number | string;
+    },
+  ) {
+    return this.safe(() => this.appService.updateCustomer(customerId, body, this.admin(authorization)));
   }
 
   @Post('admin/exchanges/refresh')

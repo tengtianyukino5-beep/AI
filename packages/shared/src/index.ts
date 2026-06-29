@@ -1,4 +1,6 @@
 export type Asset = 'JPY' | 'USDT' | 'BTC' | 'ETH';
+export type CryptoAsset = Exclude<Asset, 'JPY'>;
+export type MarketAsset = CryptoAsset | 'XRP' | 'SOL' | 'DOT' | 'DOGE' | 'LTC' | 'MONA' | 'BCC' | 'XLM';
 export type KycStatus = 'not_submitted' | 'pending' | 'approved' | 'rejected' | 'need_more_info';
 export type VipLevel = 'VIP0' | 'VIP1' | 'VIP2' | 'VIP3';
 export type CustomerStatus = 'active' | 'frozen' | 'disabled' | 'finance_review_required';
@@ -37,6 +39,10 @@ export interface CustomerProfile {
   kycStatus: KycStatus;
   vipLevel: VipLevel;
   autoAiEnabled: boolean;
+  creditScore: number;
+  manualDailyLimit?: number;
+  successRatePercent?: number;
+  aiRunning: boolean;
   inviteCode: string;
   kycDocumentFrontName?: string;
   createdAt: string;
@@ -62,17 +68,32 @@ export interface DepositOrder {
   id: string;
   businessNo: string;
   customerId: string;
-  asset: Exclude<Asset, 'JPY'>;
+  asset: CryptoAsset;
   amount: string;
   status: 'pending' | 'approved' | 'rejected';
   proofText: string;
   proofImageName?: string;
+  proofImageDataUrl?: string;
   createdAt: string;
+}
+
+export interface WithdrawalOrder {
+  id: string;
+  businessNo: string;
+  customerId: string;
+  asset: Asset;
+  amount: string;
+  status: 'pending' | 'approved' | 'rejected';
+  destinationType: 'bank' | 'wallet';
+  destinationText: string;
+  note?: string;
+  createdAt: string;
+  completedAt?: string;
 }
 
 export interface ConversionQuote {
   id: string;
-  fromAsset: Exclude<Asset, 'JPY'>;
+  fromAsset: CryptoAsset;
   fromAmount: string;
   path: string[];
   displayPair: string;
@@ -95,9 +116,20 @@ export interface SimulationOpportunity {
   customerId: string;
   exchanges: [string, string];
   pair: string;
+  baseAsset: MarketAsset;
   spreadPercent: string;
   principalJpy: string;
+  quantity: string;
   estimatedProfitJpy: string;
+  grossProfitJpy: string;
+  totalCostJpy: string;
+  buyFeeJpy: string;
+  sellFeeJpy: string;
+  slippageCostJpy: string;
+  riskBufferJpy: string;
+  feeRate: string;
+  slippageRate: string;
+  riskBufferRate: string;
   buyReferenceJpy: string;
   sellReferenceJpy: string;
   confidencePercent: string;
@@ -122,6 +154,9 @@ export interface SimulationOrder {
   status: 'created' | 'analyzing' | 'executing' | 'settled' | 'failed' | 'cancelled';
   principalJpy: string;
   profitJpy: string;
+  grossProfitJpy?: string;
+  totalCostJpy?: string;
+  baseAsset?: MarketAsset;
   vipLevel: VipLevel;
   balanceVersionBefore: number;
   balanceVersionAfter: number;
@@ -173,7 +208,7 @@ export interface ExchangeConfig {
 export interface MarketTicker {
   exchangeId: string;
   exchangeName: string;
-  pair: 'BTC/JPY' | 'ETH/JPY';
+  pair: `${MarketAsset}/JPY`;
   bidJpy: string;
   askJpy: string;
   lastJpy: string;
@@ -191,7 +226,7 @@ export interface MarketScannerSummary {
   opportunityThresholdSeconds: number;
   activeOpportunityCount: number;
   signalState: 'locked' | 'scanning' | 'opportunity';
-  dominantPair: 'BTC/JPY' | 'ETH/JPY';
+  dominantPair: `${MarketAsset}/JPY`;
   lastScanAt: string;
 }
 
@@ -211,6 +246,7 @@ export interface DashboardData {
   customer: CustomerProfile;
   balances: AssetBalance[];
   deposits: DepositOrder[];
+  withdrawals: WithdrawalOrder[];
   ledger: LedgerEntry[];
   opportunities: SimulationOpportunity[];
   missedOpportunities: SimulationOpportunity[];
@@ -228,6 +264,7 @@ export interface DashboardData {
 export interface AdminSummary {
   pendingKyc: number;
   pendingDeposits: number;
+  pendingWithdrawals: number;
   totalCustomers: number;
   totalJpy: string;
   simulationProfitToday: string;

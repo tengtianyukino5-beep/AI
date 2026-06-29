@@ -40,6 +40,7 @@ import type {
   SimulationOrder,
   VipLevel,
   VipRule,
+  WithdrawalOrder,
 } from '@twodays/shared';
 
 const API_BASE = '/api/v1';
@@ -56,6 +57,7 @@ type AdminState = {
   balances: Record<string, AssetBalance[]>;
   ledger: LedgerEntry[];
   deposits: DepositOrder[];
+  withdrawals: WithdrawalOrder[];
   opportunities: SimulationOpportunity[];
   orders: SimulationOrder[];
   vipRules: VipRule[];
@@ -87,13 +89,14 @@ type AdminState = {
   };
 };
 
-type CustomerPage = 'dashboard' | 'kyc' | 'deposit' | 'convert' | 'ai' | 'vip' | 'invite' | 'ledger';
-type AdminPage = 'overview' | 'customers' | 'kyc' | 'deposits' | 'balances' | 'rules' | 'audit';
+type CustomerPage = 'dashboard' | 'kyc' | 'deposit' | 'withdraw' | 'convert' | 'ai' | 'vip' | 'invite' | 'ledger';
+type AdminPage = 'overview' | 'customers' | 'kyc' | 'deposits' | 'withdrawals' | 'balances' | 'rules' | 'audit';
 
 const customerNav: Array<{ key: CustomerPage; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'dashboard', label: 'ホーム', icon: LayoutDashboard },
   { key: 'kyc', label: '本人確認', icon: ShieldCheck },
   { key: 'deposit', label: '入金', icon: Wallet },
+  { key: 'withdraw', label: '出金', icon: Banknote },
   { key: 'convert', label: '変換', icon: ArrowRightLeft },
   { key: 'ai', label: 'AI裁定', icon: Bot },
   { key: 'vip', label: 'VIP', icon: BadgeCheck },
@@ -106,6 +109,7 @@ const adminNav: Array<{ key: AdminPage; label: string; icon: typeof LayoutDashbo
   { key: 'customers', label: '客户', icon: UserRound },
   { key: 'kyc', label: 'KYC', icon: ShieldCheck },
   { key: 'deposits', label: '入金', icon: Wallet },
+  { key: 'withdrawals', label: '出金', icon: Banknote },
   { key: 'balances', label: '调账', icon: Banknote },
   { key: 'rules', label: '规则', icon: SlidersHorizontal },
   { key: 'audit', label: '审计', icon: History },
@@ -312,6 +316,7 @@ function CustomerApp(props: {
         {props.page === 'dashboard' ? <CustomerDashboard dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'kyc' ? <KycPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'deposit' ? <DepositPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
+        {props.page === 'withdraw' ? <WithdrawalPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'convert' ? <ConversionPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'ai' ? <AiPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'vip' ? <VipPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
@@ -503,8 +508,8 @@ function CustomerDashboard(props: {
         <Metric
           icon={Gauge}
           label="AI算力"
-          value={vipRule(dashboard).aiPower}
-          note={autoDisabled ? '本人確認後に利用可能' : '市場監視中'}
+          value={aiPowerScore(dashboard)}
+          note={autoDisabled ? '本人確認後に利用可能' : `信用${dashboard.customer.creditScore ?? 80} / 成功率${dashboard.customer.successRatePercent ?? 90}%`}
         />
       </section>
 
@@ -714,7 +719,7 @@ function DepositPage(props: {
       () =>
         props.call(
           '/customer/deposits',
-          { method: 'POST', body: JSON.stringify({ asset, amount, proofText, proofImageName: proofFileName }) },
+          { method: 'POST', body: JSON.stringify({ asset, amount, proofText, proofImageName: proofFileName, proofImageDataUrl: proofPreview }) },
           props.token,
         ),
       '入金申請を送信しました。審査完了までお待ちください。',
@@ -734,7 +739,9 @@ function DepositPage(props: {
       return;
     }
     setProofFileName(file.name);
-    setProofPreview(URL.createObjectURL(file));
+    const reader = new FileReader();
+    reader.onload = () => setProofPreview(typeof reader.result === 'string' ? reader.result : '');
+    reader.readAsDataURL(file);
   }
 
   const depositGuide = depositGuideFor(asset);
@@ -832,6 +839,127 @@ function DepositPage(props: {
   );
 }
 
+function WithdrawalPage(props: {
+  dashboard: DashboardData;
+  token: string;
+  call: <T>(path: string, options?: RequestInit, token?: string) => Promise<T>;
+  run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
+  refresh: (token?: string) => Promise<DashboardData>;
+}) {
+  const [asset, setAsset] = useState<Asset>('JPY');
+  const [amount, setAmount] = useState('10000');
+  const [destinationType, setDestinationType] = useState<'bank' | 'wallet'>('bank');
+  const [destinationText, setDestinationText] = useState('');
+  const [note, setNote] = useState('');
+  const selectedBalance = balanceOf(props.dashboard.balances, asset);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const result = await props.run(
+      () =>
+        props.call(
+          '/customer/withdrawals',
+          { method: 'POST', body: JSON.stringify({ asset, amount, destinationType, destinationText, note }) },
+          props.token,
+        ),
+      '出金申請を送信しました。審査完了までお待ちください。',
+    );
+    if (result) {
+      setDestinationText('');
+      setNote('');
+      await props.refresh();
+    }
+  }
+
+  return (
+    <section className="two-column withdrawal-workspace">
+      <form className="panel" onSubmit={submit}>
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Withdrawal</p>
+            <h2>出金申請</h2>
+          </div>
+          <Banknote size={22} />
+        </div>
+        <div className="asset-picker">
+          {props.dashboard.balances.map((balance) => (
+            <button
+              className={asset === balance.asset ? 'asset-option active' : 'asset-option'}
+              key={balance.asset}
+              type="button"
+              onClick={() => setAsset(balance.asset)}
+            >
+              <span>{balance.asset}</span>
+              <strong>{balance.asset === 'JPY' ? formatJpy(balance.available) : balance.available}</strong>
+              <small>凍結 {balance.frozen} {balance.asset}</small>
+            </button>
+          ))}
+        </div>
+        <label>
+          出金資産
+          <select value={asset} onChange={(event) => setAsset(event.target.value as Asset)}>
+            <option value="JPY">JPY</option>
+            <option value="USDT">USDT</option>
+            <option value="BTC">BTC</option>
+            <option value="ETH">ETH</option>
+          </select>
+        </label>
+        <label>
+          数量
+          <input value={amount} onChange={(event) => setAmount(event.target.value)} />
+        </label>
+        <label>
+          出金先種別
+          <select value={destinationType} onChange={(event) => setDestinationType(event.target.value as 'bank' | 'wallet')}>
+            <option value="bank">銀行口座</option>
+            <option value="wallet">ウォレット</option>
+          </select>
+        </label>
+        <label>
+          出金先
+          <input
+            value={destinationText}
+            onChange={(event) => setDestinationText(event.target.value)}
+            placeholder={destinationType === 'bank' ? '銀行名 / 支店 / 口座番号 / 名義' : 'ネットワーク / ウォレットアドレス'}
+          />
+        </label>
+        <label>
+          備考
+          <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="任意" />
+        </label>
+        <div className="balance-hint">
+          <span>利用可能</span>
+          <strong>{asset === 'JPY' ? formatJpy(selectedBalance.available) : `${selectedBalance.available} ${asset}`}</strong>
+          <small>申請後は審査完了まで凍結されます。</small>
+        </div>
+        <button className="primary-button" type="submit">
+          出金申請
+        </button>
+      </form>
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Withdrawal Status</p>
+            <h2>出金履歴</h2>
+          </div>
+          <History size={22} />
+        </div>
+        <DataTable
+          columns={['受付番号', '資産', '数量', '出金先', '状態', '申請時刻']}
+          rows={props.dashboard.withdrawals.map((withdrawal) => [
+            withdrawal.businessNo,
+            withdrawal.asset,
+            withdrawal.asset === 'JPY' ? formatJpy(withdrawal.amount) : withdrawal.amount,
+            withdrawal.destinationText,
+            withdrawalStatusJa(withdrawal.status),
+            formatTime(withdrawal.createdAt),
+          ])}
+        />
+      </section>
+    </section>
+  );
+}
+
 function ConversionPage(props: {
   dashboard: DashboardData;
   token: string;
@@ -844,6 +972,7 @@ function ConversionPage(props: {
   const [quote, setQuote] = useState<ConversionQuote | null>(null);
   const selectedBalance = balanceOf(props.dashboard.balances, fromAsset);
   const liveUnitPrice = estimatedAssetJpy(fromAsset, '1', props.dashboard.marketTickers);
+  const convertibleBalances = props.dashboard.balances.filter((item) => item.asset !== 'JPY' && Number(item.available) > 0);
 
   async function createQuote(event: FormEvent) {
     event.preventDefault();
@@ -893,9 +1022,27 @@ function ConversionPage(props: {
             <strong>1 {fromAsset} = {formatJpy(liveUnitPrice)}</strong>
           </div>
         </div>
+        <div className="asset-picker">
+          {convertibleBalances.map((balance) => (
+            <button
+              className={fromAsset === balance.asset ? 'asset-option active' : 'asset-option'}
+              key={balance.asset}
+              type="button"
+              onClick={() => {
+                setFromAsset(balance.asset as Exclude<Asset, 'JPY'>);
+                setAmount(String(Math.min(Number(balance.available), Number(amount) || Number(balance.available))));
+                setQuote(null);
+              }}
+            >
+              <span>{balance.asset}</span>
+              <strong>{balance.available}</strong>
+              <small>{formatJpy(estimatedAssetJpy(balance.asset, balance.available, props.dashboard.marketTickers))}</small>
+            </button>
+          ))}
+        </div>
         <label>
           変換元資産
-          <select value={fromAsset} onChange={(event) => setFromAsset(event.target.value as Exclude<Asset, 'JPY'>)}>
+          <select value={fromAsset} onChange={(event) => { setFromAsset(event.target.value as Exclude<Asset, 'JPY'>); setQuote(null); }}>
             <option value="ETH">ETH</option>
             <option value="BTC">BTC</option>
             <option value="USDT">USDT</option>
@@ -918,14 +1065,9 @@ function ConversionPage(props: {
           <span className={quote ? 'active' : ''}>2. レート確認</span>
           <span>3. JPY反映</span>
         </div>
-        <div className="asset-list compact">
-          {props.dashboard.balances.filter((item) => item.asset !== 'JPY').map((balance) => (
-            <div key={balance.asset}>
-              <span>{balance.asset}</span>
-              <strong>{balance.available}</strong>
-            </div>
-          ))}
-        </div>
+        <p className="conversion-note">
+          保有している暗号資産を選択し、数量を入力してJPY見積を取得してください。確定すると選択資産が減少し、JPY残高が増加します。
+        </p>
       </form>
       <div className="panel rate-panel">
         <div className="panel-head">
@@ -970,7 +1112,10 @@ function ConversionPage(props: {
               <span>有効期限</span>
               <strong>{formatTime(quote.expiresAt)}</strong>
             </div>
-            <p>{fromAsset === 'USDT' ? 'USDT は USD -> JPY の順でJPY残高へ反映されます。' : `${fromAsset} は USDT -> USD -> JPY の順に換算され、JPY残高へ反映されます。`}</p>
+            <p>
+              {fromAsset === 'USDT' ? 'USDT は USD -> JPY の順でJPY残高へ反映されます。' : `${fromAsset} は USDT -> USD -> JPY の順に換算され、JPY残高へ反映されます。`}
+              レートは見積取得時点の市場データに基づき、有効期限内のみ確定できます。
+            </p>
             <button className="primary-button" type="button" onClick={execute}>
               変換を確定
             </button>
@@ -1021,15 +1166,20 @@ function AiPage(props: {
   async function execute(opportunityId: string) {
     const result = await props.run(
       () =>
-        props.call<{ order: SimulationOrder; dashboard: DashboardData }>(
+        props.call<{ order: SimulationOrder | null; missedOpportunity: SimulationOpportunity | null; dashboard: DashboardData }>(
           '/customer/simulation/orders',
           { method: 'POST', body: JSON.stringify({ opportunityId }) },
           props.token,
         ),
-      'AI裁定利益が残高に反映されました。',
+      'AI裁定の判定が完了しました。',
     );
     if (result) {
-      setLastOrder(result.order);
+      if (result.order) {
+        setLastOrder(result.order);
+      }
+      if (result.missedOpportunity) {
+        setMissedSelected(result.missedOpportunity);
+      }
       setSelected(null);
       await props.refresh();
     }
@@ -1114,6 +1264,9 @@ function AiPage(props: {
               <div className="opportunity-detail-grid">
                 <span>買付参考 {formatJpy(opportunity.buyReferenceJpy)}</span>
                 <span>売却参考 {formatJpy(opportunity.sellReferenceJpy)}</span>
+                <span>数量 {opportunity.quantity} {opportunity.baseAsset}</span>
+                <span>粗利益 {formatJpy(opportunity.grossProfitJpy)}</span>
+                <span>コスト {formatJpy(opportunity.totalCostJpy)}</span>
                 <span>AI信頼度 {opportunity.confidencePercent}%</span>
                 <span>流動性 {opportunity.liquidityScore}</span>
                 <span>処理見込み 即時反映</span>
@@ -1144,7 +1297,25 @@ function AiPage(props: {
             <strong>{`${selected.exchanges[0]} -> ${selected.exchanges[1]}`}</strong>
             <span>対象元本</span>
             <strong>{formatJpy(selected.principalJpy)}</strong>
-            <span>想定利益</span>
+            <span>対象数量</span>
+            <strong>{selected.quantity} {selected.baseAsset}</strong>
+            <span>買付価格</span>
+            <strong>{formatJpy(selected.buyReferenceJpy)}</strong>
+            <span>売却価格</span>
+            <strong>{formatJpy(selected.sellReferenceJpy)}</strong>
+            <span>粗利益</span>
+            <strong>{formatJpy(selected.grossProfitJpy)}</strong>
+            <span>買付手数料</span>
+            <strong>{formatJpy(selected.buyFeeJpy)}</strong>
+            <span>売却手数料</span>
+            <strong>{formatJpy(selected.sellFeeJpy)}</strong>
+            <span>スリッページ</span>
+            <strong>{formatJpy(selected.slippageCostJpy)}</strong>
+            <span>リスクバッファ</span>
+            <strong>{formatJpy(selected.riskBufferJpy)}</strong>
+            <span>控除合計</span>
+            <strong>{formatJpy(selected.totalCostJpy)}</strong>
+            <span>純利益</span>
             <strong>{formatJpy(selected.estimatedProfitJpy)}</strong>
             <span>価格差</span>
             <strong>{selected.spreadPercent}%</strong>
@@ -1209,7 +1380,17 @@ function AiPage(props: {
             <strong>{`${missedSelected.exchanges[0]} -> ${missedSelected.exchanges[1]}`}</strong>
             <span>対象元本</span>
             <strong>{formatJpy(missedSelected.principalJpy)}</strong>
-            <span>想定利益</span>
+            <span>対象数量</span>
+            <strong>{missedSelected.quantity} {missedSelected.baseAsset}</strong>
+            <span>買付価格</span>
+            <strong>{formatJpy(missedSelected.buyReferenceJpy)}</strong>
+            <span>売却価格</span>
+            <strong>{formatJpy(missedSelected.sellReferenceJpy)}</strong>
+            <span>粗利益</span>
+            <strong>{formatJpy(missedSelected.grossProfitJpy)}</strong>
+            <span>控除合計</span>
+            <strong>{formatJpy(missedSelected.totalCostJpy)}</strong>
+            <span>想定純利益</span>
             <strong>{formatJpy(missedSelected.estimatedProfitJpy)}</strong>
             <span>価格差</span>
             <strong>{missedSelected.spreadPercent}%</strong>
@@ -1247,6 +1428,12 @@ function AiPage(props: {
             <strong>{formatJpy(lastOrder.principalJpy)}</strong>
             <span>利益</span>
             <strong>{formatJpy(lastOrder.profitJpy)}</strong>
+            <span>粗利益</span>
+            <strong>{formatJpy(lastOrder.grossProfitJpy ?? '0')}</strong>
+            <span>控除合計</span>
+            <strong>{formatJpy(lastOrder.totalCostJpy ?? '0')}</strong>
+            <span>対象資産</span>
+            <strong>{lastOrder.baseAsset ?? '-'}</strong>
             <span>VIP</span>
             <strong>{lastOrder.vipLevel}</strong>
             <span>状態</span>
@@ -1258,13 +1445,15 @@ function AiPage(props: {
       ) : null}
       <h3>注文履歴</h3>
       <DataTable
-        columns={['業務番号', '状態', '元本', '利益', 'VIP', '時刻']}
+        columns={['業務番号', '状態', '資産', '元本', '粗利益', '控除', '純利益', '時刻']}
         rows={props.dashboard.orders.map((order) => [
           order.businessNo,
           orderStatusJa(order.status),
+          order.baseAsset ?? '-',
           formatJpy(order.principalJpy),
+          formatJpy(order.grossProfitJpy ?? '0'),
+          formatJpy(order.totalCostJpy ?? '0'),
           formatJpy(order.profitJpy),
-          order.vipLevel,
           formatTime(order.createdAt),
         ])}
       />
@@ -1295,7 +1484,7 @@ function VipPage(props: {
       <div className="panel-head">
         <div>
           <p className="eyebrow">VIP</p>
-          <h2>VIPと利益ルール</h2>
+          <h2>VIPと利用回数</h2>
         </div>
         <BadgeCheck size={22} />
       </div>
@@ -1309,8 +1498,8 @@ function VipPage(props: {
             <span>必要残高 {formatJpy(rule.minBalanceJpy)}</span>
             <span>機会 {rule.dailyLimit} / 日</span>
             <span>AI算力 {rule.aiPower}</span>
-            <span>利益 {formatJpy(rule.profitFloorJpy)} - {formatJpy(rule.profitCapJpy)}</span>
-            <small>80%確率で {formatJpy(rule.highProfitThresholdJpy)} 以上</small>
+            <span>東京自然日 00:00 - 23:59</span>
+            <small>利益は市場価格差、手数料、スリッページ、リスクバッファから算出されます。</small>
           </div>
         ))}
       </div>
@@ -1445,9 +1634,10 @@ function AdminApp(props: {
           </button>
         </section>
         {props.page === 'overview' ? <AdminOverview state={props.adminState} /> : null}
-        {props.page === 'customers' ? <AdminCustomers state={props.adminState} /> : null}
+        {props.page === 'customers' ? <AdminCustomers state={props.adminState} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'kyc' ? <AdminKyc state={props.adminState} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'deposits' ? <AdminDeposits state={props.adminState} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
+        {props.page === 'withdrawals' ? <AdminWithdrawals state={props.adminState} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'balances' ? <AdminBalanceAdjust state={props.adminState} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'rules' ? <AdminRules state={props.adminState} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'audit' ? <AdminAudit state={props.adminState} /> : null}
@@ -1503,8 +1693,8 @@ function AdminOverview({ state }: { state: AdminState }) {
       <section className="metric-grid">
         <Metric icon={ShieldCheck} label="KYC 待审核" value={state.summary.pendingKyc} note="身份认证审核" />
         <Metric icon={Wallet} label="入金待审核" value={state.summary.pendingDeposits} note="USDT/BTC/ETH" />
+        <Metric icon={Banknote} label="出金待审核" value={state.summary.pendingWithdrawals} note="冻结余额待处理" />
         <Metric icon={UserRound} label="客户总数" value={state.summary.totalCustomers} note="本地内存数据" />
-        <Metric icon={Activity} label="今日AI裁定利润" value={formatJpy(state.summary.simulationProfitToday)} note="东京自然日" />
       </section>
       <section className="panel">
         <div className="panel-head">
@@ -1514,30 +1704,165 @@ function AdminOverview({ state }: { state: AdminState }) {
         <p>
           {state.reconciliation.businessDateTokyo} / checked {state.reconciliation.checkedBalances} / mismatch {state.reconciliation.mismatchCount}
         </p>
+        <p>今日AI裁定利润：{formatJpy(state.summary.simulationProfitToday)}</p>
         <p>{state.reconciliation.note}</p>
       </section>
     </>
   );
 }
 
-function AdminCustomers({ state }: { state: AdminState }) {
+function AdminCustomers(props: {
+  state: AdminState;
+  token: string;
+  call: <T>(path: string, options?: RequestInit, token?: string) => Promise<T>;
+  run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
+  refresh: (token?: string) => Promise<AdminState>;
+}) {
+  const [selectedId, setSelectedId] = useState(props.state.customers[0]?.id ?? '');
+  const selected = props.state.customers.find((customer) => customer.id === selectedId) ?? props.state.customers[0];
+  const [draft, setDraft] = useState({
+    name: selected?.name ?? '',
+    status: selected?.status ?? 'active',
+    vipLevel: selected?.vipLevel ?? 'VIP0',
+    creditScore: String(selected?.creditScore ?? 80),
+    manualDailyLimit: selected?.manualDailyLimit === undefined ? '' : String(selected.manualDailyLimit),
+    successRatePercent: String(selected?.successRatePercent ?? 90),
+  });
+
+  useEffect(() => {
+    if (!selected) return;
+    setDraft({
+      name: selected.name,
+      status: selected.status,
+      vipLevel: selected.vipLevel,
+      creditScore: String(selected.creditScore ?? 80),
+      manualDailyLimit: selected.manualDailyLimit === undefined ? '' : String(selected.manualDailyLimit),
+      successRatePercent: String(selected.successRatePercent ?? 90),
+    });
+  }, [selected?.id]);
+
+  async function saveCustomer() {
+    if (!selected) return;
+    const result = await props.run(
+      () =>
+        props.call<AdminState>(
+          `/admin/customers/${selected.id}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({
+              name: draft.name,
+              status: draft.status,
+              vipLevel: draft.vipLevel,
+              creditScore: draft.creditScore,
+              manualDailyLimit: draft.manualDailyLimit === '' ? null : draft.manualDailyLimit,
+              successRatePercent: draft.successRatePercent,
+            }),
+          },
+          props.token,
+        ),
+      '客户参数已保存，并同步到客户前台。',
+    );
+    if (result) await props.refresh();
+  }
+
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>客户信息</h2>
-        <UserRound size={22} />
+    <section className="two-column admin-customer-workspace">
+      <div className="panel">
+        <div className="panel-head">
+          <h2>客户信息</h2>
+          <UserRound size={22} />
+        </div>
+        <DataTable
+          columns={['邮箱', 'KYC', 'VIP', '状态', 'JPY', '信用分', '成功率', '次数', '操作']}
+          rows={props.state.customers.map((customer) => [
+            customer.email,
+            customer.kycStatus,
+            customer.vipLevel,
+            customer.status,
+            formatJpy(balanceOf(props.state.balances[customer.id] ?? [], 'JPY').available),
+            customer.creditScore ?? 80,
+            `${customer.successRatePercent ?? 90}%`,
+            customer.manualDailyLimit ?? adminVipLimit(props.state, customer.vipLevel),
+            <button className="link-button" type="button" onClick={() => setSelectedId(customer.id)}>
+              编辑
+            </button>,
+          ])}
+        />
       </div>
-      <DataTable
-        columns={['邮箱', 'KYC', 'VIP', '状态', 'JPY', '邀请码']}
-        rows={state.customers.map((customer) => [
-          customer.email,
-          customer.kycStatus,
-          customer.vipLevel,
-          customer.status,
-          formatJpy(balanceOf(state.balances[customer.id] ?? [], 'JPY').available),
-          customer.inviteCode,
-        ])}
-      />
+      <div className="panel customer-editor-panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Customer Control</p>
+            <h2>客户运营参数</h2>
+          </div>
+          <SlidersHorizontal size={22} />
+        </div>
+        {selected ? (
+          <>
+            <div className="editor-summary">
+              <strong>{selected.email}</strong>
+              <span>KYC：{selected.kycStatus} / 邀请码：{selected.inviteCode}</span>
+            </div>
+            <div className="form-grid">
+              <label>
+                客户姓名
+                <input value={draft.name} onChange={(event) => setDraft((item) => ({ ...item, name: event.target.value }))} />
+              </label>
+              <label>
+                账号状态
+                <select value={draft.status} onChange={(event) => setDraft((item) => ({ ...item, status: event.target.value as CustomerProfile['status'] }))}>
+                  <option value="active">active</option>
+                  <option value="frozen">frozen</option>
+                  <option value="disabled">disabled</option>
+                  <option value="finance_review_required">finance_review_required</option>
+                </select>
+              </label>
+              <label>
+                VIP等级
+                <select value={draft.vipLevel} onChange={(event) => setDraft((item) => ({ ...item, vipLevel: event.target.value as VipLevel }))}>
+                  <option value="VIP0">VIP0</option>
+                  <option value="VIP1">VIP1</option>
+                  <option value="VIP2">VIP2</option>
+                  <option value="VIP3">VIP3</option>
+                </select>
+              </label>
+              <label>
+                信用分
+                <input min="0" max="100" type="number" value={draft.creditScore} onChange={(event) => setDraft((item) => ({ ...item, creditScore: event.target.value }))} />
+              </label>
+              <label>
+                单客户每日套利次数
+                <input
+                  min="0"
+                  type="number"
+                  value={draft.manualDailyLimit}
+                  placeholder={`默认 ${adminVipLimit(props.state, draft.vipLevel as VipLevel)} 次`}
+                  onChange={(event) => setDraft((item) => ({ ...item, manualDailyLimit: event.target.value }))}
+                />
+              </label>
+              <label>
+                成功率 %
+                <input
+                  min="0"
+                  max="100"
+                  type="number"
+                  value={draft.successRatePercent}
+                  onChange={(event) => setDraft((item) => ({ ...item, successRatePercent: event.target.value }))}
+                />
+              </label>
+            </div>
+            <div className="rule-note">
+              <strong>规则说明</strong>
+              <p>VIP 只控制每日机会次数。利润由实时行情价差、双边手续费 0.15%、滑点 0.1%、风险缓冲 0.05% 计算。成功率 90% 时，每 10 次机会约 1 次见送り。</p>
+            </div>
+            <button className="primary-button" type="button" onClick={() => void saveCustomer()}>
+              保存客户参数
+            </button>
+          </>
+        ) : (
+          <EmptyState text="请选择客户。" />
+        )}
+      </div>
     </section>
   );
 }
@@ -1593,6 +1918,8 @@ function AdminDeposits(props: {
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
   refresh: (token?: string) => Promise<AdminState>;
 }) {
+  const [selectedDeposit, setSelectedDeposit] = useState<DepositOrder | null>(null);
+
   async function action(depositId: string, type: 'approve' | 'reject') {
     const result = await props.run(
       () => props.call<AdminState>(`/admin/deposits/${depositId}/${type}`, { method: 'POST' }, props.token),
@@ -1614,7 +1941,9 @@ function AdminDeposits(props: {
           customerEmail(props.state, deposit.customerId),
           deposit.asset,
           deposit.amount,
-          deposit.proofImageName || deposit.proofText || '未上传',
+          <button className="link-button" type="button" onClick={() => setSelectedDeposit(deposit)}>
+            查看凭证
+          </button>,
           deposit.status,
           deposit.status === 'pending' ? (
             <span className="inline-actions" key={deposit.id}>
@@ -1626,6 +1955,120 @@ function AdminDeposits(props: {
           ),
         ])}
       />
+      {selectedDeposit ? (
+        <div className="admin-detail-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Deposit Proof</p>
+              <h3>{selectedDeposit.businessNo}</h3>
+            </div>
+            <button className="ghost-button" type="button" onClick={() => setSelectedDeposit(null)}>
+              关闭
+            </button>
+          </div>
+          <div className="result-grid">
+            <span>客户</span>
+            <strong>{customerEmail(props.state, selectedDeposit.customerId)}</strong>
+            <span>资产</span>
+            <strong>{selectedDeposit.asset}</strong>
+            <span>数量</span>
+            <strong>{selectedDeposit.amount}</strong>
+            <span>TxID / 备注</span>
+            <strong>{selectedDeposit.proofText}</strong>
+            <span>上传文件</span>
+            <strong>{selectedDeposit.proofImageName || '未上传'}</strong>
+            <span>状态</span>
+            <strong>{selectedDeposit.status}</strong>
+          </div>
+          <div className="proof-placeholder">
+            {selectedDeposit.proofImageDataUrl ? (
+              <img alt="入金凭证" src={selectedDeposit.proofImageDataUrl} />
+            ) : (
+              <>
+                <Upload size={24} />
+                <span>{selectedDeposit.proofImageName || '未上传凭证图片'}</span>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function AdminWithdrawals(props: {
+  state: AdminState;
+  token: string;
+  call: <T>(path: string, options?: RequestInit, token?: string) => Promise<T>;
+  run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
+  refresh: (token?: string) => Promise<AdminState>;
+}) {
+  const [selectedWithdrawal, setSelectedWithdrawal] = useState<WithdrawalOrder | null>(null);
+
+  async function action(withdrawalId: string, type: 'approve' | 'reject') {
+    const result = await props.run(
+      () => props.call<AdminState>(`/admin/withdrawals/${withdrawalId}/${type}`, { method: 'POST' }, props.token),
+      type === 'approve' ? '出金已完成，冻结余额已扣除。' : '出金已驳回，冻结余额已返还。',
+    );
+    if (result) await props.refresh();
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>出金管理</h2>
+        <Banknote size={22} />
+      </div>
+      <DataTable
+        columns={['单号', '客户', '资产', '数量', '出金先', '状态', '操作']}
+        rows={props.state.withdrawals.map((withdrawal) => [
+          withdrawal.businessNo,
+          customerEmail(props.state, withdrawal.customerId),
+          withdrawal.asset,
+          withdrawal.asset === 'JPY' ? formatJpy(withdrawal.amount) : withdrawal.amount,
+          <button className="link-button" type="button" onClick={() => setSelectedWithdrawal(withdrawal)}>
+            查看详情
+          </button>,
+          withdrawal.status,
+          withdrawal.status === 'pending' ? (
+            <span className="inline-actions" key={withdrawal.id}>
+              <button type="button" onClick={() => void action(withdrawal.id, 'approve')}>完成</button>
+              <button type="button" onClick={() => void action(withdrawal.id, 'reject')}>驳回</button>
+            </span>
+          ) : (
+            '已处理'
+          ),
+        ])}
+      />
+      {selectedWithdrawal ? (
+        <div className="admin-detail-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Withdrawal Detail</p>
+              <h3>{selectedWithdrawal.businessNo}</h3>
+            </div>
+            <button className="ghost-button" type="button" onClick={() => setSelectedWithdrawal(null)}>
+              关闭
+            </button>
+          </div>
+          <div className="result-grid">
+            <span>客户</span>
+            <strong>{customerEmail(props.state, selectedWithdrawal.customerId)}</strong>
+            <span>资产</span>
+            <strong>{selectedWithdrawal.asset}</strong>
+            <span>数量</span>
+            <strong>{selectedWithdrawal.asset === 'JPY' ? formatJpy(selectedWithdrawal.amount) : selectedWithdrawal.amount}</strong>
+            <span>类型</span>
+            <strong>{selectedWithdrawal.destinationType === 'bank' ? '银行口座' : '钱包地址'}</strong>
+            <span>出金先</span>
+            <strong>{selectedWithdrawal.destinationText}</strong>
+            <span>备注</span>
+            <strong>{selectedWithdrawal.note || '-'}</strong>
+            <span>状态</span>
+            <strong>{selectedWithdrawal.status}</strong>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1743,15 +2186,15 @@ function AdminRules(props: {
     if (result) await props.refresh();
   }
 
-  async function updateVip(rule: VipRule, profitCapJpy: number) {
+  async function updateVip(rule: VipRule, dailyLimit: number) {
     const result = await props.run(
       () =>
         props.call<AdminState>(
           `/admin/vip/${rule.level}`,
-          { method: 'PATCH', body: JSON.stringify({ ...rule, profitCapJpy }) },
+          { method: 'PATCH', body: JSON.stringify({ ...rule, dailyLimit }) },
           props.token,
         ),
-      'VIP 利润规则已更新。',
+      'VIP 每日套利机会次数已更新。',
     );
     if (result) await props.refresh();
   }
@@ -1768,7 +2211,7 @@ function AdminRules(props: {
     <section className="two-column">
       <div className="panel">
         <div className="panel-head">
-          <h2>VIP / 利润规则</h2>
+          <h2>VIP / 次数规则</h2>
           <BadgeCheck size={22} />
         </div>
         <div className="admin-list">
@@ -1776,10 +2219,11 @@ function AdminRules(props: {
             <article className="admin-row" key={rule.level}>
               <div>
                 <strong>{rule.level}</strong>
-                <p>{formatJpy(rule.minBalanceJpy)} / {rule.dailyLimit} 次 / cap {formatJpy(rule.profitCapJpy)}</p>
+                <p>{formatJpy(rule.minBalanceJpy)} / {rule.dailyLimit} 次 / 日 / AI {rule.aiPower}</p>
+                <small>VIP 只控制东京自然日内的套利机会次数，利润由行情价差与成本公式计算。</small>
               </div>
-              <button className="secondary-button" type="button" onClick={() => void updateVip(rule, rule.profitCapJpy + 1000)}>
-                封顶 +1000
+              <button className="secondary-button" type="button" onClick={() => void updateVip(rule, rule.dailyLimit + 1)}>
+                次数 +1
               </button>
             </article>
           ))}
@@ -1944,6 +2388,19 @@ function vipRule(dashboard: DashboardData) {
   return dashboard.vipRules.find((rule) => rule.level === dashboard.customer.vipLevel) ?? dashboard.vipRules[0];
 }
 
+function adminVipLimit(state: AdminState, level: VipLevel) {
+  return state.vipRules.find((rule) => rule.level === level)?.dailyLimit ?? 0;
+}
+
+function aiPowerScore(dashboard: DashboardData) {
+  const rule = vipRule(dashboard);
+  const credit = dashboard.customer.creditScore ?? 80;
+  const successRate = dashboard.customer.successRatePercent ?? 90;
+  const remaining = Math.max(0, dashboard.todayLimit - dashboard.todayUsed);
+  const base = Number(rule.aiPower.replace('x', '')) || 1;
+  return `${Math.max(1, Math.round(base + credit / 25 + successRate / 50 + Math.min(3, remaining)))}x`;
+}
+
 function formatJpy(value: string | number) {
   return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(Number(value) || 0);
 }
@@ -1982,6 +2439,15 @@ function depositStatusJa(status: DepositOrder['status']) {
   const labels: Record<DepositOrder['status'], string> = {
     pending: '確認中',
     approved: '反映済み',
+    rejected: '差戻し',
+  };
+  return labels[status];
+}
+
+function withdrawalStatusJa(status: WithdrawalOrder['status']) {
+  const labels: Record<WithdrawalOrder['status'], string> = {
+    pending: '審査中',
+    approved: '出金完了',
     rejected: '差戻し',
   };
   return labels[status];
