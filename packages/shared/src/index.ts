@@ -148,10 +148,23 @@ export interface ExchangeConfig {
   minIntervalSeconds: number;
   maxIntervalSeconds: number;
   enabled: boolean;
-  apiProvider: 'bitflyer' | 'coincheck' | 'gmo_coin' | 'bitbank' | 'okcoin_japan' | 'bittrade' | 'okx' | 'htx' | 'binance' | 'fallback';
+  apiProvider:
+    | 'bitflyer'
+    | 'coincheck'
+    | 'gmo_coin'
+    | 'bitbank'
+    | 'okcoin_japan'
+    | 'bitpoint'
+    | 'bittrade'
+    | 'okx'
+    | 'htx'
+    | 'binance'
+    | 'fallback';
   apiUrl?: string;
   sourcePriority: 'primary' | 'backup' | 'manual';
   lastStatus: 'live' | 'fallback' | 'disabled' | 'error';
+  lastCheckedAt?: string;
+  lastError?: string;
 }
 
 export interface MarketTicker {
@@ -179,15 +192,26 @@ export interface MarketScannerSummary {
   lastScanAt: string;
 }
 
+export interface AutoAiRuntime {
+  enabled: boolean;
+  stage: 'locked' | 'idle' | 'scanning' | 'settled' | 'limit_reached';
+  lastOrderNo?: string;
+  lastProfitJpy?: string;
+  lastSettledAt?: string;
+  nextRunHintJa: string;
+}
+
 export interface DashboardData {
   customer: CustomerProfile;
   balances: AssetBalance[];
+  deposits: DepositOrder[];
   ledger: LedgerEntry[];
   opportunities: SimulationOpportunity[];
   orders: SimulationOrder[];
   vipRules: VipRule[];
   marketTickers: MarketTicker[];
   marketScanner: MarketScannerSummary;
+  autoAiRuntime: AutoAiRuntime;
   todayUsed: number;
   todayLimit: number;
   tokyoNow: string;

@@ -141,10 +141,23 @@ interface ExchangeConfig {
   minIntervalSeconds: number;
   maxIntervalSeconds: number;
   enabled: boolean;
-  apiProvider: 'bitflyer' | 'coincheck' | 'gmo_coin' | 'bitbank' | 'okcoin_japan' | 'bittrade' | 'okx' | 'htx' | 'binance' | 'fallback';
+  apiProvider:
+    | 'bitflyer'
+    | 'coincheck'
+    | 'gmo_coin'
+    | 'bitbank'
+    | 'okcoin_japan'
+    | 'bitpoint'
+    | 'bittrade'
+    | 'okx'
+    | 'htx'
+    | 'binance'
+    | 'fallback';
   apiUrl?: string;
   sourcePriority: 'primary' | 'backup' | 'manual';
   lastStatus: 'live' | 'fallback' | 'disabled' | 'error';
+  lastCheckedAt?: string;
+  lastError?: string;
 }
 
 interface MarketTicker {
@@ -170,6 +183,15 @@ interface MarketScannerSummary {
   signalState: 'locked' | 'scanning' | 'opportunity';
   dominantPair: 'BTC/JPY' | 'ETH/JPY';
   lastScanAt: string;
+}
+
+interface AutoAiRuntime {
+  enabled: boolean;
+  stage: 'locked' | 'idle' | 'scanning' | 'settled' | 'limit_reached';
+  lastOrderNo?: string;
+  lastProfitJpy?: string;
+  lastSettledAt?: string;
+  nextRunHintJa: string;
 }
 
 interface AdminSummary {
@@ -236,6 +258,7 @@ export class AppService {
   private readonly auditLogs: AuditLog[] = [];
   private readonly inviteRewards: InviteReward[] = [];
   private readonly marketCache = new Map<string, MarketCacheEntry>();
+  private readonly autoAiRuns = new Map<string, { lastRunAt: number; lastOrderId?: string }>();
   private marketRefreshInFlight = false;
   private lastMarketRefreshStartedAt = 0;
 
@@ -294,9 +317,9 @@ export class AppService {
     this.exchange('ex-jp-5', 'SBI VC Trade', 'japan', 'fallback'),
     this.exchange('ex-jp-6', 'Rakuten Wallet', 'japan', 'fallback'),
     this.exchange('ex-jp-7', 'DMM Bitcoin', 'japan', 'fallback'),
-    this.exchange('ex-jp-8', 'BITPoint Japan', 'japan', 'fallback'),
+    this.exchange('ex-jp-8', 'BITPoint Japan', 'japan', 'bitpoint', 'https://api.bitpoint.co.jp/bpj-ex-api/api/v1/ticker'),
     this.exchange('ex-jp-9', 'OKCoinJapan', 'japan', 'okcoin_japan', 'https://www.okcoin.jp/api/spot/v3/instruments/BTC-JPY/ticker'),
-    this.exchange('ex-jp-10', 'BitTrade', 'japan', 'bittrade'),
+    this.exchange('ex-jp-10', 'BitTrade', 'japan', 'bittrade', 'https://api-cloud.bittrade.co.jp/market/detail/merged'),
   ];
 
   constructor() {
@@ -327,6 +350,8 @@ export class AppService {
       apiUrl,
       sourcePriority: apiUrl ? 'primary' : 'backup',
       lastStatus: apiUrl ? 'live' : 'fallback',
+      lastCheckedAt: undefined,
+      lastError: undefined,
     };
   }
 
@@ -437,6 +462,7 @@ export class AppService {
     this.refreshOpportunityMarket(customer, marketTickers);
     this.ensureDailyOpportunities(customer, marketTickers);
     this.refreshOpportunityMarket(customer, marketTickers);
+    const autoAiRuntime = this.runAutoAiIfNeeded(customer, marketTickers);
     const marketScanner = this.marketScannerSummary(customer, marketTickers);
     const todayOrders = this.orders.filter(
       (order) => order.customerId === customer.id && this.tokyoDate(order.createdAt) === this.businessDateTokyo(),
@@ -445,12 +471,14 @@ export class AppService {
     return {
       customer: this.publicCustomer(customer),
       balances: this.getBalances(customer.id),
+      deposits: this.deposits.filter((item) => item.customerId === customer.id).slice(0, 12),
       ledger: this.ledger.filter((item) => item.customerId === customer.id).slice(0, 20),
       opportunities: this.opportunities.filter((item) => item.customerId === customer.id && item.status === 'available'),
       orders: this.orders.filter((item) => item.customerId === customer.id),
       vipRules: this.vipRules,
       marketTickers,
       marketScanner,
+      autoAiRuntime,
       todayUsed: todayOrders.length,
       todayLimit: vipRule.dailyLimit,
       tokyoNow: this.tokyoNow(),
@@ -474,6 +502,7 @@ export class AppService {
     if (enabled) {
       const marketTickers = this.marketTickers();
       this.ensureDailyOpportunities(customer, marketTickers);
+      this.runAutoAiIfNeeded(customer, marketTickers, true);
     }
     this.audit('simulation.auto_toggle', customer.email, 'customer', customer.id, enabled ? '开启自动 AI' : '关闭自动 AI');
     return this.dashboard(customer);
@@ -579,29 +608,8 @@ export class AppService {
     if (!opportunity || opportunity.status !== 'available') {
       throw new Error('この裁定機会は利用できません。');
     }
-    const balance = this.balance(customer.id, 'JPY');
-    const beforeVersion = balance.balanceVersion;
-    const profit = Number(opportunity.estimatedProfitJpy);
-    opportunity.status = 'executed';
-    const order: SimulationOrder = {
-      id: this.id('sim'),
-      businessNo: this.businessNo('SIM'),
-      customerId: customer.id,
-      opportunityId,
-      status: 'settled',
-      principalJpy: opportunity.principalJpy,
-      profitJpy: String(profit),
-      vipLevel: customer.vipLevel,
-      balanceVersionBefore: beforeVersion,
-      balanceVersionAfter: beforeVersion + 1,
-      aiSummaryJa: opportunity.aiSummaryJa,
-      disclosureJa,
-      createdAt: this.now(),
-      settledAt: this.now(),
-    };
-    this.orders.unshift(order);
-    this.adjustBalance(customer.id, 'JPY', profit, 'simulation_profit', 'AI裁定利益', '站内AI裁定利润');
-    this.audit('simulation.settle', customer.email, 'simulation_order', order.id, `站内AI裁定结算利润 ¥${profit}`);
+    this.assertDailyOrderCapacity(customer);
+    const order = this.settleOpportunity(customer, opportunity, 'manual');
     if (customer.autoAiEnabled) {
       const marketTickers = this.marketTickers();
       this.ensureDailyOpportunities(customer, marketTickers);
@@ -761,6 +769,12 @@ export class AppService {
       highProfitProbability: Number(input.highProfitProbability ?? rule.highProfitProbability),
     });
     this.audit('vip.update', operator, 'vip_rule', level, '修改 VIP / 利润规则');
+    return this.adminState();
+  }
+
+  async refreshMarketsNow(operator: string) {
+    await this.refreshExternalMarkets(true);
+    this.audit('exchange.refresh', operator, 'exchange', 'all', '手动刷新交易所行情 API');
     return this.adminState();
   }
 
@@ -936,7 +950,7 @@ export class AppService {
         riskLevelJa: confidence >= 92 ? '低' : '中',
         status: 'available',
         aiSummaryJa:
-          `東京時間 ${this.tokyoNow()} 時点で、${buy.name} と ${sell.name} の ${signal.pair} 市場データ、板厚、価格更新秒数、24時間変動率、VIP上限、利用可能残高を照合しました。検出ウィンドウは最大 ${slowestInterval.toFixed(3)} 秒、AI信頼度は ${confidence}%、流動性スコアは ${liquidity}、想定処理時間は ${executionSeconds} 秒です。条件が維持されている間、JPY残高への利益反映対象として処理できます。`,
+          `東京時間 ${this.tokyoNow()} 時点で、${buy.name} と ${sell.name} の ${signal.pair} 市場データ、板厚、データ鮮度、24時間変動率、VIP上限、利用可能残高を照合しました。AI信頼度は ${confidence}%、流動性スコアは ${liquidity}、処理条件は有効です。条件が維持されている間、JPY残高への利益反映対象として処理できます。`,
         businessDateTokyo: today,
         createdAt: this.now(),
       });
@@ -977,8 +991,115 @@ export class AppService {
       opportunity.executionSeconds = Math.max(2, Math.min(18, Math.round(1.6 + slowestInterval + index + spread)));
       opportunity.riskLevelJa = confidence >= 92 ? '低' : confidence >= 86 ? '中' : '注意';
       opportunity.aiSummaryJa =
-        `東京時間 ${this.tokyoNow()} の最新スキャンで、${opportunity.exchanges[0]} と ${opportunity.exchanges[1]} の ${opportunity.pair} 価格差は ${opportunity.spreadPercent}% に変動しました。価格更新秒数、板厚、流動性、VIP上限、JPY残高を再評価し、AI信頼度 ${opportunity.confidencePercent}% の裁定機会として検出されています。`;
+        `東京時間 ${this.tokyoNow()} の最新スキャンで、${opportunity.exchanges[0]} と ${opportunity.exchanges[1]} の ${opportunity.pair} 価格差は ${opportunity.spreadPercent}% に変動しました。市場データ鮮度、板厚、流動性、VIP上限、JPY残高を再評価し、AI信頼度 ${opportunity.confidencePercent}% の裁定機会として検出されています。`;
     });
+  }
+
+  private runAutoAiIfNeeded(customer: CustomerRecord, marketTickers: MarketTicker[], force = false): AutoAiRuntime {
+    if (customer.kycStatus !== 'approved') {
+      return {
+        enabled: customer.autoAiEnabled,
+        stage: 'locked',
+        nextRunHintJa: '本人確認完了後に自動AI裁定を開始できます。',
+      };
+    }
+    if (!customer.autoAiEnabled) {
+      return {
+        enabled: false,
+        stage: 'idle',
+        nextRunHintJa: '自動AI裁定をONにすると、検出された機会を平台内で自動処理します。',
+      };
+    }
+    if (this.todayOrderCount(customer) >= this.vipRule(customer.vipLevel).dailyLimit) {
+      return {
+        enabled: true,
+        stage: 'limit_reached',
+        nextRunHintJa: '本日の利用上限に達しました。東京時間の翌日から再開できます。',
+      };
+    }
+
+    const runState = this.autoAiRuns.get(customer.id);
+    if (!force && runState && Date.now() - runState.lastRunAt < 3500) {
+      const order = runState.lastOrderId ? this.orders.find((item) => item.id === runState.lastOrderId) : undefined;
+      return {
+        enabled: true,
+        stage: order ? 'settled' : 'scanning',
+        lastOrderNo: order?.businessNo,
+        lastProfitJpy: order?.profitJpy,
+        lastSettledAt: order?.settledAt,
+        nextRunHintJa: order ? '直近のAI裁定利益はJPY残高へ反映済みです。' : '市場シグナルを監視しています。',
+      };
+    }
+
+    this.ensureDailyOpportunities(customer, marketTickers);
+    this.refreshOpportunityMarket(customer, marketTickers);
+    const opportunity = this.opportunities.find((item) => item.customerId === customer.id && item.status === 'available');
+    if (!opportunity) {
+      this.autoAiRuns.set(customer.id, { lastRunAt: Date.now(), lastOrderId: runState?.lastOrderId });
+      return {
+        enabled: true,
+        stage: 'scanning',
+        nextRunHintJa: '市場シグナルを監視しています。条件が成立すると平台内で自動処理します。',
+      };
+    }
+
+    const order = this.settleOpportunity(customer, opportunity, 'auto');
+    this.autoAiRuns.set(customer.id, { lastRunAt: Date.now(), lastOrderId: order.id });
+    this.ensureDailyOpportunities(customer, marketTickers);
+    return {
+      enabled: true,
+      stage: 'settled',
+      lastOrderNo: order.businessNo,
+      lastProfitJpy: order.profitJpy,
+      lastSettledAt: order.settledAt,
+      nextRunHintJa: 'AI裁定処理が完了し、利益はJPY残高へ反映されました。',
+    };
+  }
+
+  private settleOpportunity(customer: CustomerRecord, opportunity: SimulationOpportunity, mode: 'manual' | 'auto') {
+    this.assertDailyOrderCapacity(customer);
+    const balance = this.balance(customer.id, 'JPY');
+    const beforeVersion = balance.balanceVersion;
+    const profit = Number(opportunity.estimatedProfitJpy);
+    opportunity.status = 'executed';
+    const now = this.now();
+    const order: SimulationOrder = {
+      id: this.id('sim'),
+      businessNo: this.businessNo(mode === 'auto' ? 'AUTO' : 'SIM'),
+      customerId: customer.id,
+      opportunityId: opportunity.id,
+      status: 'settled',
+      principalJpy: opportunity.principalJpy,
+      profitJpy: String(profit),
+      vipLevel: customer.vipLevel,
+      balanceVersionBefore: beforeVersion,
+      balanceVersionAfter: beforeVersion + 1,
+      aiSummaryJa: opportunity.aiSummaryJa,
+      disclosureJa,
+      createdAt: now,
+      settledAt: now,
+    };
+    this.orders.unshift(order);
+    this.adjustBalance(customer.id, 'JPY', profit, 'simulation_profit', 'AI裁定利益', mode === 'auto' ? '自动AI裁定利润' : '手动AI裁定利润');
+    this.audit(
+      mode === 'auto' ? 'simulation.auto_settle' : 'simulation.settle',
+      customer.email,
+      'simulation_order',
+      order.id,
+      `平台内部AI裁定结算利润 ¥${profit}`,
+    );
+    return order;
+  }
+
+  private assertDailyOrderCapacity(customer: CustomerRecord) {
+    if (this.todayOrderCount(customer) >= this.vipRule(customer.vipLevel).dailyLimit) {
+      throw new Error('本日のAI裁定利用上限に達しました。');
+    }
+  }
+
+  private todayOrderCount(customer: CustomerRecord) {
+    const today = this.businessDateTokyo();
+    return this.orders.filter((order) => order.customerId === customer.id && this.tokyoDate(order.createdAt) === today).length;
   }
 
   private calculateProfit(rule: VipRule, principalJpy: number) {
@@ -1111,8 +1232,8 @@ export class AppService {
     return Math.floor(market.cryptoToUsdt * market.usdtToUsd * market.usdToJpy);
   }
 
-  private async refreshExternalMarkets() {
-    if (this.marketRefreshInFlight || Date.now() - this.lastMarketRefreshStartedAt < 4500) {
+  private async refreshExternalMarkets(force = false) {
+    if (this.marketRefreshInFlight || (!force && Date.now() - this.lastMarketRefreshStartedAt < 4500)) {
       return;
     }
     this.marketRefreshInFlight = true;
@@ -1123,11 +1244,14 @@ export class AppService {
         enabled.flatMap((exchange) =>
           (['BTC/JPY', 'ETH/JPY'] as const).map(async (pair) => {
             const ticker = await this.fetchExternalTicker(exchange, pair);
+            exchange.lastCheckedAt = this.now();
             if (ticker) {
               this.marketCache.set(`${exchange.id}:${pair}`, ticker);
               exchange.lastStatus = 'live';
+              exchange.lastError = undefined;
             } else {
               exchange.lastStatus = 'fallback';
+              exchange.lastError = 'API 未返回可用行情，已使用备用行情源';
             }
           }),
         ),
@@ -1171,6 +1295,10 @@ export class AppService {
         return `https://public.bitbank.cc/${symbol.toLowerCase()}_jpy/ticker`;
       case 'okcoin_japan':
         return `https://www.okcoin.jp/api/spot/v3/instruments/${symbol}-JPY/ticker`;
+      case 'bitpoint':
+        return `https://api.bitpoint.co.jp/bpj-ex-api/api/v1/ticker?symbol=${symbol}JPY`;
+      case 'bittrade':
+        return `https://api-cloud.bittrade.co.jp/market/detail/merged?symbol=${symbol.toLowerCase()}jpy`;
       case 'okx':
         return `https://www.okx.com/api/v5/market/ticker?instId=${symbol}-USDT`;
       case 'htx':
@@ -1215,6 +1343,16 @@ export class AppService {
       bid = this.numberField(data, 'best_bid');
       ask = this.numberField(data, 'best_ask');
       last = this.numberField(data, 'last');
+    } else if (provider === 'bitpoint') {
+      const row = (data.data ?? data) as Record<string, unknown>;
+      bid = this.numberField(row, 'bid') ?? this.numberField(row, 'bestBid') ?? this.numberField(row, 'buy');
+      ask = this.numberField(row, 'ask') ?? this.numberField(row, 'bestAsk') ?? this.numberField(row, 'sell');
+      last = this.numberField(row, 'last') ?? this.numberField(row, 'lastPrice');
+    } else if (provider === 'bittrade') {
+      const tick = (data.tick ?? data) as Record<string, unknown>;
+      bid = this.arrayNumber(tick?.bid, 0) ?? this.numberField(tick, 'bid') ?? this.numberField(tick, 'buy');
+      ask = this.arrayNumber(tick?.ask, 0) ?? this.numberField(tick, 'ask') ?? this.numberField(tick, 'sell');
+      last = this.numberField(tick, 'close') ?? this.numberField(tick, 'last');
     } else if (provider === 'okx') {
       const rows = Array.isArray(data.data) ? (data.data as Array<Record<string, unknown>>) : [];
       const row = rows[0];

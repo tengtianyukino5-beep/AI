@@ -132,6 +132,11 @@ export class AppController {
     return this.safe(() => this.appService.adjustCustomerBalance(body, this.admin(authorization)));
   }
 
+  @Post('admin/exchanges/refresh')
+  refreshMarkets(@Headers('authorization') authorization?: string) {
+    return this.safe(() => this.appService.refreshMarketsNow(this.admin(authorization)));
+  }
+
   @Patch('admin/exchanges/:exchangeId')
   updateExchange(
     @Headers('authorization') authorization: string | undefined,
@@ -162,9 +167,9 @@ export class AppController {
     return authorization?.replace(/^Bearer\s+/i, '').trim() ?? '';
   }
 
-  private safe<T>(fn: () => T): ApiResponse<T | null> {
+  private async safe<T>(fn: () => T | Promise<T>): Promise<ApiResponse<T | null>> {
     try {
-      return this.ok(fn());
+      return this.ok(await fn());
     } catch (error) {
       return {
         code: 'ERROR',

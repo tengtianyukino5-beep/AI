@@ -254,6 +254,10 @@ button:disabled {
   color: rgba(219, 233, 228, 0.7);
 }
 
+.warning-text {
+  color: #d5b86a !important;
+}
+
 .sidebar {
   position: sticky;
   top: 16px;
@@ -493,6 +497,24 @@ button:disabled {
   font-size: 18px;
 }
 
+.runtime-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.13);
+  color: #ffffff;
+  padding: 10px 12px;
+  font-weight: 900;
+}
+
+.runtime-banner.light {
+  margin: 0 0 12px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -534,6 +556,10 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+
+.deposit-history-panel {
+  grid-column: 1 / -1;
 }
 
 .panel {
@@ -595,6 +621,33 @@ button:disabled {
   border-color: #0f766e;
   background: #0f766e;
   color: #ffffff;
+}
+
+.ai-start-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 12px 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  padding: 12px;
+}
+
+.ai-start-row div {
+  display: grid;
+  gap: 4px;
+}
+
+.ai-start-row strong {
+  color: #ffffff;
+}
+
+.ai-start-row span {
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .auth-grid {

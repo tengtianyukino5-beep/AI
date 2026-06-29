@@ -311,7 +311,7 @@ function CustomerApp(props: {
         <CustomerHeader dashboard={props.dashboard} />
         {props.page === 'dashboard' ? <CustomerDashboard dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'kyc' ? <KycPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
-        {props.page === 'deposit' ? <DepositPage token={props.token} call={props.call} run={props.run} /> : null}
+        {props.page === 'deposit' ? <DepositPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'convert' ? <ConversionPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'ai' ? <AiPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'vip' ? <VipPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
@@ -497,10 +497,15 @@ function CustomerDashboard(props: {
       <MarketTickerStrip tickers={dashboard.marketTickers} />
 
       <section className="metric-grid">
-        <Metric icon={Wallet} label="JPY利用可能残高" value={formatJpy(jpy.available)} note={`balanceVersion ${jpy.balanceVersion}`} />
+        <Metric icon={Wallet} label="JPY利用可能残高" value={formatJpy(jpy.available)} note="JPY残高に即時反映" />
         <Metric icon={BadgeCheck} label="VIPレベル" value={dashboard.customer.vipLevel} note={`${dashboard.todayUsed}/${dashboard.todayLimit} 本日利用`} />
         <Metric icon={ShieldCheck} label="本人確認" value={kycLabelJa(dashboard.customer.kycStatus)} note={autoDisabled ? 'AI裁定はロック中' : 'AI裁定を利用できます'} />
-        <Metric icon={Gauge} label="AI算力" value={vipRule(dashboard).aiPower} note={`${dashboard.marketScanner.fastestIntervalSeconds} - ${dashboard.marketScanner.slowestIntervalSeconds} 秒検出`} />
+        <Metric
+          icon={Gauge}
+          label="AI算力"
+          value={vipRule(dashboard).aiPower}
+          note={autoDisabled ? '本人確認後に利用可能' : '市場監視中'}
+        />
       </section>
 
       <section className="two-column">
@@ -515,14 +520,22 @@ function CustomerDashboard(props: {
             </button>
           </div>
           <p>{autoDisabled ? '本人確認が完了していないため、自動AI裁定を利用できません。' : 'VIP設定、東京自然日、利用可能残高に基づいてAI裁定を自動実行します。'}</p>
+          {dashboard.autoAiRuntime.stage === 'settled' ? (
+            <div className="runtime-banner">
+              <CheckCircle2 size={18} />
+              <span>
+                {dashboard.autoAiRuntime.lastOrderNo} / {formatJpy(dashboard.autoAiRuntime.lastProfitJpy ?? '0')} 反映済み
+              </span>
+            </div>
+          ) : null}
           <div className="scanner-grid">
             <div>
               <span>取引所プール</span>
               <strong>{dashboard.marketScanner.enabledExchangeCount}</strong>
             </div>
             <div>
-              <span>検出ウィンドウ</span>
-              <strong>{dashboard.marketScanner.fastestIntervalSeconds}s - {dashboard.marketScanner.slowestIntervalSeconds}s</strong>
+              <span>市場監視</span>
+              <strong>{dashboard.marketScanner.signalState === 'opportunity' ? '裁定検出' : '監視中'}</strong>
             </div>
             <div>
               <span>検出中ペア</span>
@@ -563,7 +576,7 @@ function CustomerDashboard(props: {
           <Sparkles size={22} />
         </div>
         <p>
-          東京自然日、現在のVIP設定、利用可能残高、内蔵取引所プールの検出秒数、直近ボラティリティ、流動性スコアをもとに、AI裁定機会を評価しています。
+          東京自然日、現在のVIP設定、利用可能残高、市場監視シグナル、直近ボラティリティ、流動性スコアをもとに、AI裁定機会を評価しています。
           利益はJPY残高へ反映され、履歴で確認できます。
         </p>
       </section>
@@ -580,7 +593,7 @@ function MarketTickerStrip({ tickers }: { tickers: MarketTicker[] }) {
           <span>{ticker.exchangeName}</span>
           <strong>{ticker.pair}</strong>
           <em>{formatJpy(ticker.lastJpy)}</em>
-          <small>{ticker.intervalSeconds}s / {ticker.source === 'real_api' ? 'API' : '予備'}</small>
+          <small>{tickerStatusLabel(ticker)}</small>
         </div>
       ))}
     </section>
@@ -662,9 +675,11 @@ function KycPage(props: {
 }
 
 function DepositPage(props: {
+  dashboard: DashboardData;
   token: string;
   call: <T>(path: string, options?: RequestInit, token?: string) => Promise<T>;
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
+  refresh: (token?: string) => Promise<DashboardData>;
 }) {
   const [asset, setAsset] = useState<Exclude<Asset, 'JPY'>>('ETH');
   const [amount, setAmount] = useState('1');
@@ -682,7 +697,7 @@ function DepositPage(props: {
       await props.run(() => Promise.reject(new Error('送金TxIDまたは受付番号を入力してください。')));
       return;
     }
-    await props.run(
+    const result = await props.run(
       () =>
         props.call(
           '/customer/deposits',
@@ -691,6 +706,12 @@ function DepositPage(props: {
         ),
       '入金申請を送信しました。審査完了までお待ちください。',
     );
+    if (result) {
+      setProofText('');
+      setProofFileName('');
+      setProofPreview('');
+      await props.refresh();
+    }
   }
 
   function selectProof(file?: File) {
@@ -774,6 +795,26 @@ function DepositPage(props: {
         </div>
         <p>入金申請後、管理部門の確認が完了すると対象資産の残高へ反映されます。証明写真が不鮮明な場合は再提出が必要です。</p>
       </aside>
+      <section className="panel deposit-history-panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Deposit Status</p>
+            <h2>入金申請履歴</h2>
+          </div>
+          <History size={22} />
+        </div>
+        <DataTable
+          columns={['受付番号', '資産', '数量', '状態', '証明', '申請時刻']}
+          rows={props.dashboard.deposits.map((deposit) => [
+            deposit.businessNo,
+            deposit.asset,
+            deposit.amount,
+            depositStatusJa(deposit.status),
+            deposit.proofImageName || deposit.proofText,
+            formatTime(deposit.createdAt),
+          ])}
+        />
+      </section>
     </section>
   );
 }
@@ -911,14 +952,12 @@ function ConversionPage(props: {
               <strong>{quote.snapshot.usdtToUsd}</strong>
               <span>USD/JPY</span>
               <strong>{quote.snapshot.usdToJpy}</strong>
-              <span>レート源</span>
-              <strong>{rateSourceLabel(quote.rateSource)}</strong>
               <span>更新</span>
               <strong>{formatTime(quote.rateUpdatedAt)}</strong>
               <span>有効期限</span>
               <strong>{formatTime(quote.expiresAt)}</strong>
             </div>
-            <p>{fromAsset === 'USDT' ? 'USDT は USD -> JPY の順でJPY残高へ反映されます。' : `${fromAsset} は内部換算で USDT -> USD -> JPY の順にJPY残高へ反映されます。`}</p>
+            <p>{fromAsset === 'USDT' ? 'USDT は USD -> JPY の順でJPY残高へ反映されます。' : `${fromAsset} は USDT -> USD -> JPY の順に換算され、JPY残高へ反映されます。`}</p>
             <button className="primary-button" type="button" onClick={execute}>
               変換を確定
             </button>
@@ -928,9 +967,9 @@ function ConversionPage(props: {
             <div className="quote-hero muted">
               <span>{fromAsset}/JPY</span>
               <strong>{amount || '0'} {fromAsset} ≒ {formatJpy(estimatedAssetJpy(fromAsset, amount || '0', props.dashboard.marketTickers))}</strong>
-              <small>市場レートは数秒ごとに更新されます。</small>
+              <small>最新市場レートに基づいて更新されます。</small>
             </div>
-            <p>主レート源、予備レート源、手動レート兜底の優先順位で見積もりを作成します。見積もり取得後、有効期限内に確定してください。</p>
+            <p>選択した資産数量に対してJPY受取見積を作成します。見積もり取得後、有効期限内に確定してください。</p>
           </div>
         )}
       </div>
@@ -947,6 +986,23 @@ function AiPage(props: {
 }) {
   const [lastOrder, setLastOrder] = useState<SimulationOrder | null>(null);
   const [selected, setSelected] = useState<SimulationOpportunity | null>(null);
+  const autoDisabled = props.dashboard.customer.kycStatus !== 'approved';
+
+  async function toggleAuto() {
+    const next = !props.dashboard.customer.autoAiEnabled;
+    const data = await props.run(
+      () =>
+        props.call<DashboardData>(
+          '/customer/simulation/auto-toggle',
+          { method: 'POST', body: JSON.stringify({ enabled: next }) },
+          props.token,
+        ),
+      next ? '自動AI裁定を開始しました。' : '自動AI裁定を停止しました。',
+    );
+    if (data) {
+      await props.refresh();
+    }
+  }
 
   async function execute(opportunityId: string) {
     const result = await props.run(
@@ -975,6 +1031,23 @@ function AiPage(props: {
           </div>
           <Bot size={22} />
         </div>
+        <div className="ai-start-row">
+          <div>
+            <strong>{props.dashboard.customer.autoAiEnabled ? '自動AI裁定 稼働中' : '自動AI裁定 停止中'}</strong>
+            <span>{props.dashboard.autoAiRuntime.nextRunHintJa}</span>
+          </div>
+          <button className={props.dashboard.customer.autoAiEnabled ? 'toggle on' : 'toggle'} disabled={autoDisabled} type="button" onClick={toggleAuto}>
+            {props.dashboard.customer.autoAiEnabled ? 'ON' : 'OFF'}
+          </button>
+        </div>
+        {props.dashboard.autoAiRuntime.lastOrderNo ? (
+          <div className="runtime-banner light">
+            <CheckCircle2 size={18} />
+            <span>
+              最新処理 {props.dashboard.autoAiRuntime.lastOrderNo} / 利益 {formatJpy(props.dashboard.autoAiRuntime.lastProfitJpy ?? '0')}
+            </span>
+          </div>
+        ) : null}
         <div className="scanner-grid">
           <div>
             <span>状態</span>
@@ -985,8 +1058,8 @@ function AiPage(props: {
             <strong>{props.dashboard.marketScanner.enabledExchangeCount}</strong>
           </div>
           <div>
-            <span>最速/最遅</span>
-            <strong>{props.dashboard.marketScanner.fastestIntervalSeconds}s / {props.dashboard.marketScanner.slowestIntervalSeconds}s</strong>
+            <span>市場監視</span>
+            <strong>{props.dashboard.marketScanner.signalState === 'opportunity' ? '裁定検出' : '監視中'}</strong>
           </div>
           <div>
             <span>検出ペア</span>
@@ -997,7 +1070,7 @@ function AiPage(props: {
       </div>
       <div className="panel">
       <div className="cards-list">
-        {props.dashboard.opportunities.length === 0 ? <EmptyState text="現在利用可能な裁定機会はありません。" /> : null}
+        {props.dashboard.opportunities.length === 0 ? <EmptyState text={props.dashboard.autoAiRuntime.stage === 'settled' ? '直近のAI裁定は処理済みです。次の市場シグナルを監視しています。' : '現在利用可能な裁定機会はありません。'} /> : null}
         {props.dashboard.opportunities.map((opportunity) => (
           <article className="opportunity-card" key={opportunity.id}>
             <div>
@@ -1009,7 +1082,7 @@ function AiPage(props: {
                 <span>売却参考 {formatJpy(opportunity.sellReferenceJpy)}</span>
                 <span>AI信頼度 {opportunity.confidencePercent}%</span>
                 <span>流動性 {opportunity.liquidityScore}</span>
-                <span>予定処理 {opportunity.executionSeconds} 秒</span>
+                <span>処理見込み 即時反映</span>
                 <span>東京日 {opportunity.businessDateTokyo}</span>
               </div>
             </div>
@@ -1087,9 +1160,9 @@ function AiPage(props: {
             <span>VIP</span>
             <strong>{lastOrder.vipLevel}</strong>
             <span>状態</span>
-            <strong>{lastOrder.status}</strong>
-            <span>残高版数</span>
-            <strong>{`${lastOrder.balanceVersionBefore} -> ${lastOrder.balanceVersionAfter}`}</strong>
+            <strong>{orderStatusJa(lastOrder.status)}</strong>
+            <span>完了時刻</span>
+            <strong>{formatTime(lastOrder.settledAt ?? lastOrder.createdAt)}</strong>
           </div>
         </div>
       ) : null}
@@ -1098,7 +1171,7 @@ function AiPage(props: {
         columns={['業務番号', '状態', '元本', '利益', 'VIP', '時刻']}
         rows={props.dashboard.orders.map((order) => [
           order.businessNo,
-          order.status,
+          orderStatusJa(order.status),
           formatJpy(order.principalJpy),
           formatJpy(order.profitJpy),
           order.vipLevel,
@@ -1144,7 +1217,7 @@ function VipPage(props: {
           <div className={props.dashboard.customer.vipLevel === rule.level ? 'vip-card active' : 'vip-card'} key={rule.level}>
             <strong>{rule.level}</strong>
             <span>必要残高 {formatJpy(rule.minBalanceJpy)}</span>
-            <span>机会 {rule.dailyLimit} / 日</span>
+            <span>機会 {rule.dailyLimit} / 日</span>
             <span>AI算力 {rule.aiPower}</span>
             <span>利益 {formatJpy(rule.profitFloorJpy)} - {formatJpy(rule.profitCapJpy)}</span>
             <small>80%確率で {formatJpy(rule.highProfitThresholdJpy)} 以上</small>
@@ -1593,6 +1666,14 @@ function AdminRules(props: {
     if (result) await props.refresh();
   }
 
+  async function refreshMarkets() {
+    const result = await props.run(
+      () => props.call<AdminState>('/admin/exchanges/refresh', { method: 'POST' }, props.token),
+      '交易所行情 API 已刷新。',
+    );
+    if (result) await props.refresh();
+  }
+
   return (
     <section className="two-column">
       <div className="panel">
@@ -1620,7 +1701,13 @@ function AdminRules(props: {
             <p className="eyebrow">Exchange Pool</p>
             <h2>默认内置交易所列表</h2>
           </div>
-          <SlidersHorizontal size={22} />
+          <div className="row-actions">
+            <button className="secondary-button" type="button" onClick={() => void refreshMarkets()}>
+              <RefreshCw size={16} />
+              刷新行情API
+            </button>
+            <SlidersHorizontal size={22} />
+          </div>
         </div>
         <div className="rule-note">
           <strong>采样秒数规则</strong>
@@ -1633,6 +1720,8 @@ function AdminRules(props: {
                 <strong>{exchange.name}</strong>
                 <p>{exchange.category} / {exchange.apiProvider} / {exchange.sourcePriority} / {exchange.lastStatus}</p>
                 <small>{exchange.apiUrl || '备用行情源，等待正式公开 API 接入'}</small>
+                <small>{exchange.lastCheckedAt ? `最近检查：${formatTime(exchange.lastCheckedAt)}` : '最近检查：未执行'}</small>
+                {exchange.lastError ? <small className="warning-text">{exchange.lastError}</small> : null}
               </div>
               <div className="exchange-controls">
                 <label>
@@ -1750,6 +1839,17 @@ function estimatedAssetJpy(asset: Asset, amount: string | number, tickers: Marke
   return Math.floor((Number(amount) || 0) * fallbackUsdJpy);
 }
 
+function tickerStatusLabel(ticker: MarketTicker) {
+  const spread = Number(ticker.spreadPercent);
+  if (ticker.source === 'real_api' && spread < 0.25) {
+    return '高流動性';
+  }
+  if (ticker.source === 'real_api') {
+    return '市場監視中';
+  }
+  return '裁定候補';
+}
+
 function vipRule(dashboard: DashboardData) {
   return dashboard.vipRules.find((rule) => rule.level === dashboard.customer.vipLevel) ?? dashboard.vipRules[0];
 }
@@ -1786,6 +1886,27 @@ function rateSourceLabel(source: ConversionQuote['rateSource']) {
     manual: '手動レート兜底',
   };
   return labels[source];
+}
+
+function depositStatusJa(status: DepositOrder['status']) {
+  const labels: Record<DepositOrder['status'], string> = {
+    pending: '確認中',
+    approved: '反映済み',
+    rejected: '差戻し',
+  };
+  return labels[status];
+}
+
+function orderStatusJa(status: SimulationOrder['status']) {
+  const labels: Record<SimulationOrder['status'], string> = {
+    created: '作成済み',
+    analyzing: '分析中',
+    executing: '処理中',
+    settled: '反映済み',
+    failed: '失敗',
+    cancelled: '取消',
+  };
+  return labels[status];
 }
 
 function customerEmail(state: AdminState, customerId: string) {
