@@ -146,6 +146,15 @@ interface SimulationOrder {
   customerId: string;
   opportunityId: string;
   status: 'created' | 'analyzing' | 'executing' | 'settled' | 'failed' | 'cancelled';
+  executionVenue?: 'internal_test' | 'live_exchange';
+  buyExchange?: string;
+  sellExchange?: string;
+  buyOrderId?: string;
+  sellOrderId?: string;
+  executedQuantity?: string;
+  executedBuyJpy?: string;
+  executedSellJpy?: string;
+  marketSource?: 'real_api' | 'fallback' | 'manual' | 'mixed';
   principalJpy: string;
   profitJpy: string;
   grossProfitJpy?: string;
@@ -156,6 +165,8 @@ interface SimulationOrder {
   balanceVersionAfter: number;
   aiSummaryJa: string;
   disclosureJa: string;
+  failureReasonJa?: string;
+  failureDetailJa?: string;
   createdAt: string;
   settledAt?: string;
 }
@@ -170,6 +181,7 @@ interface VipRule {
   profitCapJpy: number;
   highProfitThresholdJpy: number;
   highProfitProbability: number;
+  upgradeBalanceJpy: number;
 }
 
 interface ExchangeConfig {
@@ -236,6 +248,18 @@ interface AutoAiRuntime {
   nextRunHintJa: string;
 }
 
+interface TradingRuntimeStatus {
+  marketDataMode: 'real_public_api' | 'hybrid_fallback';
+  executionMode: 'internal_test' | 'live_exchange_disabled' | 'live_exchange';
+  liveExecutionReady: boolean;
+  realApiTickerCount: number;
+  fallbackTickerCount: number;
+  manualTickerCount: number;
+  lastMarketRefreshAt?: string;
+  messageJa: string;
+  messageZh: string;
+}
+
 interface AdminSummary {
   pendingKyc: number;
   pendingDeposits: number;
@@ -244,6 +268,9 @@ interface AdminSummary {
   totalJpy: string;
   simulationProfitToday: string;
   auditCount: number;
+  realApiTickerCount: number;
+  fallbackTickerCount: number;
+  executionMode: TradingRuntimeStatus['executionMode'];
 }
 
 type CustomerRecord = CustomerProfile & {
@@ -284,8 +311,98 @@ type MarketCacheEntry = {
   source: MarketTicker['source'];
 };
 
+type ExecutionMode = 'manual' | 'auto';
+
+interface ExecutionRequest {
+  customer: CustomerRecord;
+  opportunity: SimulationOpportunity;
+  mode: ExecutionMode;
+  marketSource: SimulationOrder['marketSource'];
+}
+
+interface ExecutionResult {
+  status: 'settled' | 'failed';
+  executionVenue: SimulationOrder['executionVenue'];
+  buyExchange: string;
+  sellExchange: string;
+  buyOrderId?: string;
+  sellOrderId?: string;
+  executedQuantity: string;
+  executedBuyJpy: string;
+  executedSellJpy: string;
+  grossProfitJpy: string;
+  totalCostJpy: string;
+  netProfitJpy: string;
+  disclosureJa: string;
+  failureReasonJa?: string;
+  failureDetailJa?: string;
+}
+
+interface ExecutionProvider {
+  readonly venue: NonNullable<SimulationOrder['executionVenue']>;
+  execute(request: ExecutionRequest): ExecutionResult;
+}
+
+class TestExecutionProvider implements ExecutionProvider {
+  readonly venue = 'internal_test' as const;
+
+  execute(request: ExecutionRequest): ExecutionResult {
+    const { opportunity, marketSource } = request;
+    const netProfit = Number(opportunity.estimatedProfitJpy);
+    const sourceLabel = marketSource === 'real_api' ? '公共取引所API' : marketSource === 'mixed' ? '公共APIとバックアップデータ' : 'バックアップデータ';
+    if (!Number.isFinite(netProfit) || netProfit <= 0) {
+      return {
+        status: 'failed',
+        executionVenue: this.venue,
+        buyExchange: opportunity.exchanges[0],
+        sellExchange: opportunity.exchanges[1],
+        executedQuantity: opportunity.quantity,
+        executedBuyJpy: opportunity.buyReferenceJpy,
+        executedSellJpy: opportunity.sellReferenceJpy,
+        grossProfitJpy: opportunity.grossProfitJpy,
+        totalCostJpy: opportunity.totalCostJpy,
+        netProfitJpy: '0',
+        disclosureJa:
+          '内部テスト実行レイヤーで検証しました。外部取引所への実注文は送信していません。価格差がコストを下回ったため、残高反映は行いませんでした。',
+        failureReasonJa: '価格差が手数料・スリッページ・リスクバッファを下回りました。',
+        failureDetailJa: `${sourceLabel}の板情報を照合しましたが、控除後の純利益が0円以下となったため、テスト実行は失敗として記録されました。`,
+      };
+    }
+
+    return {
+      status: 'settled',
+      executionVenue: this.venue,
+      buyExchange: opportunity.exchanges[0],
+      sellExchange: opportunity.exchanges[1],
+      buyOrderId: this.testOrderId('BUY'),
+      sellOrderId: this.testOrderId('SELL'),
+      executedQuantity: opportunity.quantity,
+      executedBuyJpy: opportunity.buyReferenceJpy,
+      executedSellJpy: opportunity.sellReferenceJpy,
+      grossProfitJpy: opportunity.grossProfitJpy,
+      totalCostJpy: opportunity.totalCostJpy,
+      netProfitJpy: String(Math.floor(netProfit)),
+      disclosureJa:
+        `内部テスト実行レイヤーで約定検証を行いました。行情は${sourceLabel}を使用し、外部取引所への実注文は送信していません。` +
+        '検証済みの純利益のみJPY残高へ反映しています。',
+    };
+  }
+
+  private testOrderId(prefix: string) {
+    return `TEST-${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+  }
+}
+
+class LiveExchangeExecutionProvider implements ExecutionProvider {
+  readonly venue = 'live_exchange' as const;
+
+  execute(_request: ExecutionRequest): ExecutionResult {
+    throw new Error('ライブ取引所への発注は未設定です。APIキー、取引所、権限、サンドボックス/本番環境を設定してから有効化してください。');
+  }
+}
+
 const disclosureJa =
-  'AI裁定エンジンが東京時間の市場データ、残高、VIP条件を照合し、確定した利益をJPY残高へ反映しました。処理結果は資金履歴で確認できます。';
+  'この環境は内部テスト版です。行情は公共取引所APIを優先して取得し、注文処理は内部テスト実行レイヤーで検証します。外部取引所への実注文は送信していません。';
 const balanceAssets: Asset[] = ['JPY', 'USDT', 'BTC', 'ETH'];
 const cryptoAssets: CryptoAsset[] = ['USDT', 'BTC', 'ETH'];
 const marketAssets: MarketAsset[] = ['BTC', 'ETH', 'XRP', 'SOL', 'DOT', 'DOGE', 'LTC', 'MONA', 'BCC', 'XLM'];
@@ -309,6 +426,7 @@ export class AppService {
   private readonly auditLogs: AuditLog[] = [];
   private readonly inviteRewards: InviteReward[] = [];
   private readonly marketCache = new Map<string, MarketCacheEntry>();
+  private readonly executionProvider: ExecutionProvider = new TestExecutionProvider();
   private readonly autoAiRuns = new Map<
     string,
     { lastRunAt: number; lastEvent: 'settled' | 'missed' | 'scanning'; lastOrderId?: string; lastMissedOpportunityId?: string }
@@ -327,6 +445,7 @@ export class AppService {
       profitCapJpy: 3000,
       highProfitThresholdJpy: 2000,
       highProfitProbability: 80,
+      upgradeBalanceJpy: 0,
     },
     {
       level: 'VIP1',
@@ -338,6 +457,7 @@ export class AppService {
       profitCapJpy: 20000,
       highProfitThresholdJpy: 15000,
       highProfitProbability: 80,
+      upgradeBalanceJpy: 75000,
     },
     {
       level: 'VIP2',
@@ -349,6 +469,7 @@ export class AppService {
       profitCapJpy: 90000,
       highProfitThresholdJpy: 60000,
       highProfitProbability: 80,
+      upgradeBalanceJpy: 250000,
     },
     {
       level: 'VIP3',
@@ -360,6 +481,7 @@ export class AppService {
       profitCapJpy: 1200000,
       highProfitThresholdJpy: 700000,
       highProfitProbability: 80,
+      upgradeBalanceJpy: 500000,
     },
   ];
 
@@ -519,6 +641,7 @@ export class AppService {
     const autoAiRuntime = this.runAutoAiIfNeeded(customer, marketTickers);
     const marketScanner = this.marketScannerSummary(customer, marketTickers);
     const displayMarketTickers = this.rotatingMarketTickers(marketTickers);
+    const tradingRuntime = this.tradingRuntimeStatus(marketTickers);
     return {
       customer: this.publicCustomer(customer),
       balances: this.getBalances(customer.id),
@@ -539,6 +662,7 @@ export class AppService {
       todayProfitJpy: this.todayProfitJpy(customer),
       tokyoNow: this.tokyoNow(),
       disclosureJa,
+      tradingRuntime,
     };
   }
 
@@ -565,16 +689,29 @@ export class AppService {
   }
 
   createDeposit(customer: CustomerRecord, input: { asset: CryptoAsset; amount: string; proofText: string; proofImageName?: string; proofImageDataUrl?: string }) {
+    if (customer.kycStatus !== 'approved') {
+      throw new Error('入金申请前需要先完成 KYC。');
+    }
+    if (!input.proofText?.trim()) {
+      throw new Error('请填写转账 TxID 或受理备注。');
+    }
+    if (!input.proofImageName?.trim()) {
+      throw new Error('入金凭证图片不能为空。');
+    }
+    const amount = Number(input.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('请输入有效的入金数量。');
+    }
     const deposit: DepositOrder = {
       id: this.id('dep'),
       businessNo: this.businessNo('DEP'),
       customerId: customer.id,
       asset: input.asset,
-      amount: input.amount,
+      amount: this.formatDecimal(amount),
       status: 'pending',
       proofText: input.proofText || 'transfer proof',
       proofImageName: input.proofImageName,
-      proofImageDataUrl: input.proofImageDataUrl,
+      proofImageDataUrl: this.compactDataUrl(input.proofImageDataUrl),
       createdAt: this.now(),
     };
     this.deposits.unshift(deposit);
@@ -694,17 +831,21 @@ export class AppService {
     if (customer.kycStatus !== 'approved') {
       throw new Error('VIPアップグレードには本人確認が必要です。');
     }
-    const jpy = Number(this.balance(customer.id, 'JPY').available);
-    if (customer.vipLevel === 'VIP0' && jpy >= 75000) {
-      customer.vipLevel = 'VIP1';
-    } else if (customer.vipLevel === 'VIP1' && jpy >= 250000) {
-      customer.vipLevel = 'VIP2';
-    } else if (customer.vipLevel === 'VIP2' && jpy >= 500000) {
-      customer.vipLevel = 'VIP3';
-    } else {
-      throw new Error('残高条件を満たしていません。');
+    const nextLevel = this.nextVipLevel(customer.vipLevel);
+    if (!nextLevel) {
+      throw new Error('すでに最高VIPレベルです。');
     }
-    this.audit('vip.upgrade', customer.email, 'customer', customer.id, `${customer.vipLevel} 自助升级，不扣余额`);
+    const targetRule = this.vipRule(nextLevel);
+    const costJpy = Math.max(0, Math.floor(targetRule.upgradeBalanceJpy));
+    const jpy = Number(this.balance(customer.id, 'JPY').available);
+    if (jpy < costJpy) {
+      throw new Error(`VIPアップグレードには ${this.formatJpyText(costJpy)} のJPY残高が必要です。`);
+    }
+    if (costJpy > 0) {
+      this.adjustBalance(customer.id, 'JPY', -costJpy, 'manual_debit', 'VIPアップグレード', `${nextLevel} 升级费用扣除`);
+    }
+    customer.vipLevel = nextLevel;
+    this.audit('vip.upgrade', customer.email, 'customer', customer.id, `${nextLevel} 自助升级，扣除 ¥${costJpy}`);
     return this.dashboard(customer);
   }
 
@@ -721,14 +862,15 @@ export class AppService {
       throw new Error('AI裁定処理中です。完了後に再度お試しください。');
     }
     if (this.shouldMissOpportunity(customer, opportunity)) {
-      this.missOpportunity(customer, opportunity);
+      const failedOrder = this.missOpportunity(customer, opportunity, undefined, 'manual');
       this.autoAiRuns.set(customer.id, {
         lastRunAt: Date.now(),
         lastEvent: 'missed',
+        lastOrderId: failedOrder.id,
         lastMissedOpportunityId: opportunity.id,
       });
       return {
-        order: null,
+        order: failedOrder,
         missedOpportunity: opportunity,
         dashboard: this.dashboard(customer),
       };
@@ -769,6 +911,7 @@ export class AppService {
     const simulationProfitToday = this.ledger
       .filter((item) => item.ledgerType === 'simulation_profit' && this.tokyoDate(item.createdAt) === this.businessDateTokyo())
       .reduce((sum, item) => sum + Number(item.amount), 0);
+    const runtime = this.tradingRuntimeStatus(this.marketTickers());
     return {
       pendingKyc: [...this.customers.values()].filter((item) => item.kycStatus === 'pending').length,
       pendingDeposits: this.deposits.filter((item) => item.status === 'pending').length,
@@ -777,6 +920,9 @@ export class AppService {
       totalJpy: String(totalJpy),
       simulationProfitToday: String(simulationProfitToday),
       auditCount: this.auditLogs.length,
+      realApiTickerCount: runtime.realApiTickerCount,
+      fallbackTickerCount: runtime.fallbackTickerCount,
+      executionMode: runtime.executionMode,
     };
   }
 
@@ -1010,6 +1156,7 @@ export class AppService {
       profitCapJpy: Number(input.profitCapJpy ?? rule.profitCapJpy),
       highProfitThresholdJpy: Number(input.highProfitThresholdJpy ?? rule.highProfitThresholdJpy),
       highProfitProbability: Number(input.highProfitProbability ?? rule.highProfitProbability),
+      upgradeBalanceJpy: Number(input.upgradeBalanceJpy ?? rule.upgradeBalanceJpy),
     });
     this.audit('vip.update', operator, 'vip_rule', level, '修改 VIP / 利润规则');
     return this.adminState();
@@ -1343,17 +1490,18 @@ export class AppService {
     }
 
     if (this.shouldMissOpportunity(customer, opportunity)) {
-      this.missOpportunity(customer, opportunity);
+      const failedOrder = this.missOpportunity(customer, opportunity, undefined, 'auto');
       this.autoAiRuns.set(customer.id, {
         lastRunAt: Date.now(),
         lastEvent: 'missed',
-        lastOrderId: runState?.lastOrderId,
+        lastOrderId: failedOrder.id,
         lastMissedOpportunityId: opportunity.id,
       });
       this.ensureDailyOpportunities(customer, marketTickers);
       return {
         enabled: true,
         stage: 'missed',
+        lastOrderNo: failedOrder.businessNo,
         lastMissedOpportunityId: opportunity.id,
         lastMissedReasonJa: opportunity.missedReasonJa,
         lastMissedAt: opportunity.missedAt,
@@ -1388,40 +1536,74 @@ export class AppService {
     const beforeVersion = balance.balanceVersion;
     const profit = Number(opportunity.estimatedProfitJpy);
     if (!Number.isFinite(profit) || profit <= 0) {
-      this.missOpportunity(customer, opportunity, '純利益が手数料・スリッページ・リスクバッファを下回ったため、処理を見送りました。');
+      this.missOpportunity(customer, opportunity, '純利益が手数料・スリッページ・リスクバッファを下回ったため、処理を見送りました。', mode);
       throw new Error('この裁定機会は純利益条件を満たしていません。');
     }
     customer.aiRunning = true;
     try {
-      opportunity.status = 'executed';
+      const marketSource = this.opportunityMarketSource(opportunity);
+      const execution = this.executionProvider.execute({
+        customer,
+        opportunity,
+        mode,
+        marketSource,
+      });
+      if (execution.status === 'failed') {
+        opportunity.status = 'missed';
+        opportunity.missedAt = this.now();
+        opportunity.missedReasonJa = execution.failureReasonJa;
+        opportunity.missedDetailJa = execution.failureDetailJa;
+      } else {
+        opportunity.status = 'executed';
+      }
       const now = this.now();
       const order: SimulationOrder = {
         id: this.id('sim'),
         businessNo: this.businessNo(mode === 'auto' ? 'AUTO' : 'SIM'),
         customerId: customer.id,
         opportunityId: opportunity.id,
-        status: 'settled',
+        status: execution.status,
+        executionVenue: execution.executionVenue,
+        buyExchange: execution.buyExchange,
+        sellExchange: execution.sellExchange,
+        buyOrderId: execution.buyOrderId,
+        sellOrderId: execution.sellOrderId,
+        executedQuantity: execution.executedQuantity,
+        executedBuyJpy: execution.executedBuyJpy,
+        executedSellJpy: execution.executedSellJpy,
+        marketSource,
         principalJpy: opportunity.principalJpy,
-        profitJpy: String(profit),
-        grossProfitJpy: opportunity.grossProfitJpy,
-        totalCostJpy: opportunity.totalCostJpy,
+        profitJpy: execution.netProfitJpy,
+        grossProfitJpy: execution.grossProfitJpy,
+        totalCostJpy: execution.totalCostJpy,
         baseAsset: opportunity.baseAsset,
         vipLevel: customer.vipLevel,
         balanceVersionBefore: beforeVersion,
-        balanceVersionAfter: beforeVersion + 1,
+        balanceVersionAfter: execution.status === 'settled' ? beforeVersion + 1 : beforeVersion,
         aiSummaryJa: opportunity.aiSummaryJa,
-        disclosureJa,
+        disclosureJa: execution.disclosureJa,
+        failureReasonJa: execution.failureReasonJa,
+        failureDetailJa: execution.failureDetailJa,
         createdAt: now,
         settledAt: now,
       };
       this.orders.unshift(order);
-      this.adjustBalance(customer.id, 'JPY', profit, 'simulation_profit', 'AI裁定利益', mode === 'auto' ? '自动AI裁定利润' : '手动AI裁定利润');
+      if (execution.status === 'settled') {
+        this.adjustBalance(
+          customer.id,
+          'JPY',
+          Number(execution.netProfitJpy),
+          'simulation_profit',
+          'AI裁定利益',
+          mode === 'auto' ? '自動AI裁定テスト利益' : '手動AI裁定テスト利益',
+        );
+      }
       this.audit(
-        mode === 'auto' ? 'simulation.auto_settle' : 'simulation.settle',
+        execution.status === 'settled' ? (mode === 'auto' ? 'simulation.auto_settle' : 'simulation.settle') : 'simulation.execution_failed',
         customer.email,
         'simulation_order',
         order.id,
-        `平台内部AI裁定结算利润 ¥${profit}`,
+        `${execution.executionVenue} ${execution.buyExchange}->${execution.sellExchange} ${execution.status} ¥${execution.netProfitJpy}`,
       );
       return order;
     } finally {
@@ -1431,17 +1613,19 @@ export class AppService {
 
   private shouldMissOpportunity(customer: CustomerRecord, opportunity: SimulationOpportunity) {
     const todayMissed = this.todayMissedCount(customer);
-    const todaySettled = this.todayOrderCount(customer);
+    const todayAttempts = this.todayAttemptCount(customer);
     if (Number(opportunity.estimatedProfitJpy) <= 0) {
       return true;
     }
     const successRate = this.clampNumber(customer.successRatePercent ?? defaultSuccessRatePercent, 0, 100);
-    const attemptNumber = todaySettled + todayMissed + 1;
+    const attemptNumber = todayAttempts + 1;
     const expectedFailures = Math.floor((attemptNumber * (100 - successRate)) / 100);
     return todayMissed < expectedFailures;
   }
 
-  private missOpportunity(customer: CustomerRecord, opportunity: SimulationOpportunity, overrideReason?: string) {
+  private missOpportunity(customer: CustomerRecord, opportunity: SimulationOpportunity, overrideReason?: string, mode: 'manual' | 'auto' = 'manual') {
+    const balance = this.balance(customer.id, 'JPY');
+    const beforeVersion = balance.balanceVersion;
     opportunity.status = 'missed';
     opportunity.missedAt = this.now();
     const reasons = [
@@ -1458,7 +1642,40 @@ export class AppService {
       `手数料 ${this.formatJpyText(Number(opportunity.buyFeeJpy) + Number(opportunity.sellFeeJpy))}、スリッページ ${this.formatJpyText(opportunity.slippageCostJpy)}、` +
       `リスクバッファ ${this.formatJpyText(opportunity.riskBufferJpy)} を確認した結果、${opportunity.missedReasonJa} ` +
       `元本 ${this.formatJpyText(opportunity.principalJpy)} に対する想定純利益 ${this.formatJpyText(opportunity.estimatedProfitJpy)} は残高へ反映されていません。`;
+    const now = this.now();
+    const marketSource = this.opportunityMarketSource(opportunity);
+    const order: SimulationOrder = {
+      id: this.id('sim'),
+      businessNo: this.businessNo(mode === 'auto' ? 'AUTO' : 'SIM'),
+      customerId: customer.id,
+      opportunityId: opportunity.id,
+      status: 'failed',
+      executionVenue: this.executionProvider.venue,
+      buyExchange: opportunity.exchanges[0],
+      sellExchange: opportunity.exchanges[1],
+      executedQuantity: opportunity.quantity,
+      executedBuyJpy: opportunity.buyReferenceJpy,
+      executedSellJpy: opportunity.sellReferenceJpy,
+      marketSource,
+      principalJpy: opportunity.principalJpy,
+      profitJpy: '0',
+      grossProfitJpy: opportunity.grossProfitJpy,
+      totalCostJpy: opportunity.totalCostJpy,
+      baseAsset: opportunity.baseAsset,
+      vipLevel: customer.vipLevel,
+      balanceVersionBefore: beforeVersion,
+      balanceVersionAfter: beforeVersion,
+      aiSummaryJa: opportunity.aiSummaryJa,
+      disclosureJa:
+        '内部テスト実行レイヤーで検証しました。外部取引所への実注文は送信していません。条件変動により利益はJPY残高へ反映していません。',
+      failureReasonJa: opportunity.missedReasonJa,
+      failureDetailJa: opportunity.missedDetailJa,
+      createdAt: now,
+      settledAt: now,
+    };
+    this.orders.unshift(order);
     this.audit('simulation.missed', customer.email, 'simulation_opportunity', opportunity.id, opportunity.missedReasonJa);
+    return order;
   }
 
   private assertDailyOrderCapacity(customer: CustomerRecord) {
@@ -1474,16 +1691,12 @@ export class AppService {
 
   private todayMissedCount(customer: CustomerRecord) {
     const today = this.businessDateTokyo();
-    return this.opportunities.filter(
-      (opportunity) =>
-        opportunity.customerId === customer.id &&
-        opportunity.status === 'missed' &&
-        this.tokyoDate(opportunity.missedAt ?? opportunity.createdAt) === today,
-    ).length;
+    return this.orders.filter((order) => order.customerId === customer.id && order.status === 'failed' && this.tokyoDate(order.createdAt) === today)
+      .length;
   }
 
   private todayAttemptCount(customer: CustomerRecord) {
-    return this.todayOrderCount(customer) + this.todayMissedCount(customer);
+    return this.todayOrderCount(customer);
   }
 
   private todayProfitJpy(customer: CustomerRecord) {
@@ -1620,6 +1833,45 @@ export class AppService {
       })
       .sort((a, b) => b.score - a.score)
       .map((item) => item.ticker);
+  }
+
+  private tradingRuntimeStatus(marketTickers: MarketTicker[]): TradingRuntimeStatus {
+    const realApiTickerCount = marketTickers.filter((ticker) => ticker.source === 'real_api').length;
+    const fallbackTickerCount = marketTickers.filter((ticker) => ticker.source === 'fallback').length;
+    const manualTickerCount = marketTickers.filter((ticker) => ticker.source === 'manual').length;
+    const executionMode = this.executionProvider.venue === 'live_exchange' ? ('live_exchange' as const) : ('internal_test' as const);
+    const latestFetchedAt = [...this.marketCache.values()].reduce((latest, entry) => Math.max(latest, entry.fetchedAt), 0);
+    return {
+      marketDataMode: realApiTickerCount > 0 ? 'real_public_api' : 'hybrid_fallback',
+      executionMode,
+      liveExecutionReady: this.executionProvider.venue === 'live_exchange',
+      realApiTickerCount,
+      fallbackTickerCount,
+      manualTickerCount,
+      lastMarketRefreshAt: latestFetchedAt ? new Date(latestFetchedAt).toISOString() : undefined,
+      messageJa:
+        this.executionProvider.venue === 'live_exchange'
+          ? '行情APIとライブ発注レイヤーが有効です。'
+          : '行情は公共取引所APIを優先して取得し、発注は内部テスト実行レイヤーで検証しています。',
+      messageZh:
+        this.executionProvider.venue === 'live_exchange'
+          ? '真实行情与真实下单层已启用。'
+          : '行情层优先使用真实公共 API；下单层当前为透明内部测试执行，未发送真实交易所订单。',
+    };
+  }
+
+  private opportunityMarketSource(opportunity: SimulationOpportunity): SimulationOrder['marketSource'] {
+    const tickers = this.marketTickers().filter(
+      (ticker) => ticker.pair === opportunity.pair && opportunity.exchanges.includes(ticker.exchangeName),
+    );
+    if (!tickers.length) {
+      return 'fallback';
+    }
+    const sources = new Set(tickers.map((ticker) => ticker.source));
+    if (sources.size === 1) {
+      return [...sources][0];
+    }
+    return 'mixed';
   }
 
   private pairAsset(pair: MarketTicker['pair']): MarketAsset {
@@ -1912,6 +2164,23 @@ export class AppService {
 
   private vipRule(level: VipLevel) {
     return this.vipRules.find((rule) => rule.level === level) ?? this.vipRules[0];
+  }
+
+  private nextVipLevel(level: VipLevel): VipLevel | null {
+    const levels: VipLevel[] = ['VIP0', 'VIP1', 'VIP2', 'VIP3'];
+    const index = levels.indexOf(level);
+    return index >= 0 && index < levels.length - 1 ? levels[index + 1] : null;
+  }
+
+  private compactDataUrl(dataUrl?: string) {
+    if (!dataUrl) {
+      return undefined;
+    }
+    const value = dataUrl.trim();
+    if (!value.startsWith('data:image/')) {
+      return undefined;
+    }
+    return value.length > 180000 ? undefined : value;
   }
 
   private reconciliation() {

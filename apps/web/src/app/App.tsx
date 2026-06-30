@@ -91,6 +91,7 @@ type AdminState = {
 
 type CustomerPage = 'dashboard' | 'kyc' | 'deposit' | 'withdraw' | 'convert' | 'ai' | 'vip' | 'invite' | 'ledger';
 type AdminPage = 'overview' | 'customers' | 'kyc' | 'deposits' | 'withdrawals' | 'balances' | 'rules' | 'audit';
+type VipDraftKey = 'dailyLimit' | 'minBalanceJpy' | 'upgradeBalanceJpy' | 'highProfitProbability';
 
 const customerNav: Array<{ key: CustomerPage; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'dashboard', label: 'ホーム', icon: LayoutDashboard },
@@ -148,11 +149,22 @@ export function App() {
     }
   }, [adminToken]);
 
+  useEffect(() => {
+    if (!adminToken) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      void loadAdmin(adminToken);
+    }, 3500);
+    return () => window.clearInterval(timer);
+  }, [adminToken]);
+
   async function call<T>(path: string, options: RequestInit = {}, token?: string) {
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
     const response = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: {
-        'Content-Type': 'application/json',
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(options.headers ?? {}),
       },
@@ -727,7 +739,16 @@ function DepositPage(props: {
         () =>
           props.call(
             '/customer/deposits',
-            { method: 'POST', body: JSON.stringify({ asset, amount, proofText, proofImageName: proofFileName, proofImageDataUrl: proofPreview }) },
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                asset,
+                amount,
+                proofText,
+                proofImageName: proofFileName,
+                proofImageDataUrl: proofPreview.length <= 180000 ? proofPreview : undefined,
+              }),
+            },
             props.token,
           ),
         '入金申請を送信しました。審査完了までお待ちください。',
@@ -750,6 +771,10 @@ function DepositPage(props: {
       return;
     }
     setProofFileName(file.name);
+    if (file.size > 180000) {
+      void compactImage(file).then(setProofPreview).catch(() => setProofPreview(''));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => setProofPreview(typeof reader.result === 'string' ? reader.result : '');
     reader.readAsDataURL(file);
@@ -1254,6 +1279,23 @@ function AiPage(props: {
             <strong>{props.dashboard.marketScanner.dominantPair}</strong>
           </div>
         </div>
+        <div className="runtime-status-card">
+          <div>
+            <span>行情レイヤー</span>
+            <strong>{props.dashboard.tradingRuntime.marketDataMode === 'real_public_api' ? '公共API優先' : 'バックアップ併用'}</strong>
+          </div>
+          <div>
+            <span>実行レイヤー</span>
+            <strong>{executionModeJa(props.dashboard.tradingRuntime.executionMode)}</strong>
+          </div>
+          <div>
+            <span>API / 予備</span>
+            <strong>
+              {props.dashboard.tradingRuntime.realApiTickerCount} / {props.dashboard.tradingRuntime.fallbackTickerCount}
+            </strong>
+          </div>
+          <p>{props.dashboard.tradingRuntime.messageJa}</p>
+        </div>
         <MarketTickerStrip tickers={props.dashboard.marketTickers.slice(0, 6)} />
       </div>
       <div className="panel">
@@ -1435,6 +1477,24 @@ function AiPage(props: {
           <div className="result-grid">
             <span>注文番号</span>
             <strong>{lastOrder.businessNo}</strong>
+            <span>実行レイヤー</span>
+            <strong>{executionVenueJa(lastOrder.executionVenue)}</strong>
+            <span>行情ソース</span>
+            <strong>{marketSourceJa(lastOrder.marketSource)}</strong>
+            <span>買付取引所</span>
+            <strong>{lastOrder.buyExchange ?? '-'}</strong>
+            <span>売却取引所</span>
+            <strong>{lastOrder.sellExchange ?? '-'}</strong>
+            <span>買付注文ID</span>
+            <strong>{lastOrder.buyOrderId ?? '-'}</strong>
+            <span>売却注文ID</span>
+            <strong>{lastOrder.sellOrderId ?? '-'}</strong>
+            <span>約定数量</span>
+            <strong>{lastOrder.executedQuantity ?? '-'} {lastOrder.baseAsset ?? ''}</strong>
+            <span>約定買付価格</span>
+            <strong>{formatJpy(lastOrder.executedBuyJpy ?? '0')}</strong>
+            <span>約定売却価格</span>
+            <strong>{formatJpy(lastOrder.executedSellJpy ?? '0')}</strong>
             <span>元本</span>
             <strong>{formatJpy(lastOrder.principalJpy)}</strong>
             <span>利益</span>
@@ -1452,19 +1512,24 @@ function AiPage(props: {
             <span>完了時刻</span>
             <strong>{formatTime(lastOrder.settledAt ?? lastOrder.createdAt)}</strong>
           </div>
+          <p>{lastOrder.disclosureJa}</p>
         </div>
       ) : null}
       <h3>注文履歴</h3>
         <DataTable
-        columns={['業務番号', '結果', '資産', '元本', '粗利益', '控除', '純利益', '時刻']}
+        columns={['業務番号', '結果', '実行', '行情', '取引所', '資産', '元本', '粗利益', '控除', '純利益', '理由', '時刻']}
         rows={props.dashboard.orders.map((order) => [
           order.businessNo,
-          order.status === 'settled' ? '成功' : orderStatusJa(order.status),
+          order.status === 'settled' ? '成功' : order.status === 'failed' ? '失敗' : orderStatusJa(order.status),
+          executionVenueJa(order.executionVenue),
+          marketSourceJa(order.marketSource),
+          `${order.buyExchange ?? '-'} -> ${order.sellExchange ?? '-'}`,
           order.baseAsset ?? '-',
           formatJpy(order.principalJpy),
           formatJpy(order.grossProfitJpy ?? '0'),
           formatJpy(order.totalCostJpy ?? '0'),
           formatJpy(order.profitJpy),
+          order.failureReasonJa ?? (order.status === 'settled' ? '残高反映済み' : '-'),
           formatTime(order.createdAt),
         ])}
       />
@@ -1480,10 +1545,16 @@ function VipPage(props: {
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
   refresh: (token?: string) => Promise<DashboardData>;
 }) {
+  const levels: VipLevel[] = ['VIP0', 'VIP1', 'VIP2', 'VIP3'];
+  const currentIndex = levels.indexOf(props.dashboard.customer.vipLevel);
+  const nextLevel = currentIndex >= 0 && currentIndex < levels.length - 1 ? levels[currentIndex + 1] : null;
+  const nextRule = nextLevel ? props.dashboard.vipRules.find((rule) => rule.level === nextLevel) : null;
+  const jpy = Number(balanceOf(props.dashboard.balances, 'JPY').available);
+
   async function upgrade() {
     const result = await props.run(
       () => props.call<DashboardData>('/customer/vip/upgrade', { method: 'POST' }, props.token),
-      'VIPレベルが更新されました。残高は控除されません。',
+      nextRule ? `${nextRule.level}へアップグレードしました。費用はJPY残高から控除されました。` : 'VIPレベルを確認しました。',
     );
     if (result) {
       await props.refresh();
@@ -1500,13 +1571,20 @@ function VipPage(props: {
         <BadgeCheck size={22} />
       </div>
       <button className="primary-button" type="button" onClick={upgrade}>
-        自助アップグレード
+        {nextRule ? `${nextRule.level}へアップグレード` : '最高VIPレベル'}
       </button>
+      {nextRule ? (
+        <div className="rule-note">
+          <strong>次のアップグレード費用：{formatJpy(nextRule.upgradeBalanceJpy)}</strong>
+          <p>現在のJPY残高：{formatJpy(jpy)}。アップグレード成功時、費用はJPY残高から即時控除され、本日の利用上限は新しいVIP回数へ更新されます。</p>
+        </div>
+      ) : null}
       <div className="vip-grid">
         {props.dashboard.vipRules.map((rule) => (
           <div className={props.dashboard.customer.vipLevel === rule.level ? 'vip-card active' : 'vip-card'} key={rule.level}>
             <strong>{rule.level}</strong>
-            <span>必要残高 {formatJpy(rule.minBalanceJpy)}</span>
+            <span>最低残高 {formatJpy(rule.minBalanceJpy)}</span>
+            <span>アップグレード費用 {formatJpy(rule.upgradeBalanceJpy)}</span>
             <span>機会 {rule.dailyLimit} / 日</span>
             <span>AI算力 {rule.aiPower}</span>
             <span>東京自然日 00:00 - 23:59</span>
@@ -1707,6 +1785,12 @@ function AdminOverview({ state }: { state: AdminState }) {
         <Metric icon={Banknote} label="出金待审核" value={state.summary.pendingWithdrawals} note="冻结余额待处理" />
         <Metric icon={UserRound} label="客户总数" value={state.summary.totalCustomers} note="本地内存数据" />
       </section>
+      <section className="metric-grid">
+        <Metric icon={LineChart} label="真实行情 API" value={state.summary.realApiTickerCount} note="公共交易所 ticker" />
+        <Metric icon={Activity} label="备用行情" value={state.summary.fallbackTickerCount} note="API 不支持或失败时使用" />
+        <Metric icon={Bot} label="下单执行层" value={executionModeZh(state.summary.executionMode)} note="当前为透明测试执行" />
+        <Metric icon={Gauge} label="今日利润" value={formatJpy(state.summary.simulationProfitToday)} note="订单账本汇总" />
+      </section>
       <section className="panel">
         <div className="panel-head">
           <h2>日终对账</h2>
@@ -1904,16 +1988,22 @@ function AdminKyc(props: {
           <article className="admin-row" key={customer.id}>
             <div>
               <strong>{customer.email}</strong>
-              <p>{customer.name} / {customer.kycStatus}</p>
+              <p>{customer.name} / {customer.kycStatus === 'approved' ? '已通过' : customer.kycStatus === 'pending' ? '待审核' : customer.kycStatus}</p>
               <p>驾驶证正面：{customer.kycDocumentFrontName || '未上传'}</p>
             </div>
             <div className="row-actions">
-              <button className="secondary-button" type="button" onClick={() => void action(customer.id, 'approve')}>
-                通过
-              </button>
-              <button className="ghost-button" type="button" onClick={() => void action(customer.id, 'reject')}>
-                驳回
-              </button>
+              {customer.kycStatus === 'approved' ? (
+                <span className="status-pill ok">已通过</span>
+              ) : (
+                <>
+                  <button className="secondary-button" type="button" onClick={() => void action(customer.id, 'approve')}>
+                    通过
+                  </button>
+                  <button className="ghost-button" type="button" onClick={() => void action(customer.id, 'reject')}>
+                    驳回
+                  </button>
+                </>
+              )}
             </div>
           </article>
         ))}
@@ -2204,8 +2294,18 @@ function AdminRules(props: {
   const [exchangeDrafts, setExchangeDrafts] = useState<Record<string, string>>(() =>
     Object.fromEntries(props.state.exchanges.map((exchange) => [exchange.id, String(exchange.intervalSeconds)])),
   );
-  const [vipDrafts, setVipDrafts] = useState<Record<VipLevel, string>>(() =>
-    Object.fromEntries(props.state.vipRules.map((rule) => [rule.level, String(rule.dailyLimit)])) as Record<VipLevel, string>,
+  const [vipDrafts, setVipDrafts] = useState<Record<VipLevel, Partial<Record<VipDraftKey, string>>>>(() =>
+    Object.fromEntries(
+      props.state.vipRules.map((rule) => [
+        rule.level,
+        {
+          dailyLimit: String(rule.dailyLimit),
+          minBalanceJpy: String(rule.minBalanceJpy),
+          upgradeBalanceJpy: String(rule.upgradeBalanceJpy),
+          highProfitProbability: String(rule.highProfitProbability),
+        },
+      ]),
+    ) as Record<VipLevel, Partial<Record<VipDraftKey, string>>>,
   );
 
   useEffect(() => {
@@ -2213,7 +2313,19 @@ function AdminRules(props: {
   }, [props.state.exchanges]);
 
   useEffect(() => {
-    setVipDrafts(Object.fromEntries(props.state.vipRules.map((rule) => [rule.level, String(rule.dailyLimit)])) as Record<VipLevel, string>);
+    setVipDrafts(
+      Object.fromEntries(
+        props.state.vipRules.map((rule) => [
+          rule.level,
+          {
+            dailyLimit: String(rule.dailyLimit),
+            minBalanceJpy: String(rule.minBalanceJpy),
+            upgradeBalanceJpy: String(rule.upgradeBalanceJpy),
+            highProfitProbability: String(rule.highProfitProbability),
+          },
+        ]),
+      ) as Record<VipLevel, Partial<Record<VipDraftKey, string>>>,
+    );
   }, [props.state.vipRules]);
 
   async function updateExchange(exchange: ExchangeConfig, intervalSeconds: number, enabled = exchange.enabled) {
@@ -2229,15 +2341,27 @@ function AdminRules(props: {
     if (result) await props.refresh();
   }
 
-  async function updateVip(rule: VipRule, dailyLimit: number) {
+  function setVipDraft(level: VipLevel, key: VipDraftKey, value: string) {
+    setVipDrafts((drafts) => ({ ...drafts, [level]: { ...(drafts[level] ?? {}), [key]: value } }));
+  }
+
+  async function updateVip(rule: VipRule) {
+    const draft = vipDrafts[rule.level] ?? {};
+    const payload = {
+      ...rule,
+      dailyLimit: Number(draft.dailyLimit ?? rule.dailyLimit),
+      minBalanceJpy: Number(draft.minBalanceJpy ?? rule.minBalanceJpy),
+      upgradeBalanceJpy: Number(draft.upgradeBalanceJpy ?? rule.upgradeBalanceJpy),
+      highProfitProbability: Number(draft.highProfitProbability ?? rule.highProfitProbability),
+    };
     const result = await props.run(
       () =>
         props.call<AdminState>(
           `/admin/vip/${rule.level}`,
-          { method: 'PATCH', body: JSON.stringify({ ...rule, dailyLimit }) },
+          { method: 'PATCH', body: JSON.stringify(payload) },
           props.token,
         ),
-      'VIP 每日套利机会次数已更新。',
+      'VIP 规则已保存，并会同步到客户前台。',
     );
     if (result) await props.refresh();
   }
@@ -2263,7 +2387,7 @@ function AdminRules(props: {
               <div>
                 <strong>{rule.level}</strong>
                 <p>{formatJpy(rule.minBalanceJpy)} / {rule.dailyLimit} 次 / 日 / AI {rule.aiPower}</p>
-                <small>VIP 只控制东京自然日内的套利机会次数，利润由行情价差与成本公式计算。</small>
+                <small>VIP 控制东京自然日内的套利机会次数；利润由行情价差、手续费、滑点和风险缓冲计算。</small>
               </div>
               <div className="vip-limit-editor">
                 <label>
@@ -2271,11 +2395,39 @@ function AdminRules(props: {
                   <input
                     min="0"
                     type="number"
-                    value={vipDrafts[rule.level] ?? String(rule.dailyLimit)}
-                    onChange={(event) => setVipDrafts((drafts) => ({ ...drafts, [rule.level]: event.target.value }))}
+                    value={vipDrafts[rule.level]?.dailyLimit ?? String(rule.dailyLimit)}
+                    onChange={(event) => setVipDraft(rule.level, 'dailyLimit', event.target.value)}
                   />
                 </label>
-                <button className="secondary-button" type="button" onClick={() => void updateVip(rule, Number(vipDrafts[rule.level] ?? rule.dailyLimit))}>
+                <label>
+                  升级费用JPY
+                  <input
+                    min="0"
+                    type="number"
+                    value={vipDrafts[rule.level]?.upgradeBalanceJpy ?? String(rule.upgradeBalanceJpy)}
+                    onChange={(event) => setVipDraft(rule.level, 'upgradeBalanceJpy', event.target.value)}
+                  />
+                </label>
+                <label>
+                  最低余额JPY
+                  <input
+                    min="0"
+                    type="number"
+                    value={vipDrafts[rule.level]?.minBalanceJpy ?? String(rule.minBalanceJpy)}
+                    onChange={(event) => setVipDraft(rule.level, 'minBalanceJpy', event.target.value)}
+                  />
+                </label>
+                <label>
+                  高收益概率%
+                  <input
+                    min="0"
+                    max="100"
+                    type="number"
+                    value={vipDrafts[rule.level]?.highProfitProbability ?? String(rule.highProfitProbability)}
+                    onChange={(event) => setVipDraft(rule.level, 'highProfitProbability', event.target.value)}
+                  />
+                </label>
+                <button className="secondary-button" type="button" onClick={() => void updateVip(rule)}>
                   保存
                 </button>
               </div>
@@ -2427,6 +2579,33 @@ function estimatedAssetJpy(asset: Asset, amount: string | number, tickers: Marke
   return Math.floor((Number(amount) || 0) * fallbackUsdJpy);
 }
 
+function compactImage(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('画像を読み込めませんでした。'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('画像を圧縮できませんでした。'));
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxEdge = 900;
+        const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        if (!context) {
+          reject(new Error('画像処理に失敗しました。'));
+          return;
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.72));
+      };
+      image.src = typeof reader.result === 'string' ? reader.result : '';
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function tickerStatusLabel(ticker: MarketTicker) {
   const spread = Number(ticker.spreadPercent);
   if (ticker.source === 'real_api' && spread < 0.25) {
@@ -2517,6 +2696,42 @@ function orderStatusJa(status: SimulationOrder['status']) {
     cancelled: '取消',
   };
   return labels[status];
+}
+
+function executionModeJa(mode?: DashboardData['tradingRuntime']['executionMode']) {
+  const labels: Record<DashboardData['tradingRuntime']['executionMode'], string> = {
+    internal_test: '内部テスト実行',
+    live_exchange_disabled: 'ライブ発注未設定',
+    live_exchange: 'ライブ取引所発注',
+  };
+  return mode ? labels[mode] : '-';
+}
+
+function executionModeZh(mode?: DashboardData['tradingRuntime']['executionMode']) {
+  const labels: Record<DashboardData['tradingRuntime']['executionMode'], string> = {
+    internal_test: '内部测试执行',
+    live_exchange_disabled: '真实下单未启用',
+    live_exchange: '真实交易所下单',
+  };
+  return mode ? labels[mode] : '-';
+}
+
+function executionVenueJa(venue?: SimulationOrder['executionVenue']) {
+  const labels: Record<NonNullable<SimulationOrder['executionVenue']>, string> = {
+    internal_test: '内部テスト実行',
+    live_exchange: 'ライブ取引所発注',
+  };
+  return venue ? labels[venue] : '-';
+}
+
+function marketSourceJa(source?: SimulationOrder['marketSource']) {
+  const labels: Record<NonNullable<SimulationOrder['marketSource']>, string> = {
+    real_api: '公共API',
+    fallback: '予備データ',
+    manual: '手動',
+    mixed: '混合',
+  };
+  return source ? labels[source] : '-';
 }
 
 function customerEmail(state: AdminState, customerId: string) {

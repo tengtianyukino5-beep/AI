@@ -152,6 +152,15 @@ export interface SimulationOrder {
   customerId: string;
   opportunityId: string;
   status: 'created' | 'analyzing' | 'executing' | 'settled' | 'failed' | 'cancelled';
+  executionVenue?: 'internal_test' | 'live_exchange';
+  buyExchange?: string;
+  sellExchange?: string;
+  buyOrderId?: string;
+  sellOrderId?: string;
+  executedQuantity?: string;
+  executedBuyJpy?: string;
+  executedSellJpy?: string;
+  marketSource?: 'real_api' | 'fallback' | 'manual' | 'mixed';
   principalJpy: string;
   profitJpy: string;
   grossProfitJpy?: string;
@@ -162,6 +171,8 @@ export interface SimulationOrder {
   balanceVersionAfter: number;
   aiSummaryJa: string;
   disclosureJa: string;
+  failureReasonJa?: string;
+  failureDetailJa?: string;
   createdAt: string;
   settledAt?: string;
 }
@@ -176,6 +187,7 @@ export interface VipRule {
   profitCapJpy: number;
   highProfitThresholdJpy: number;
   highProfitProbability: number;
+  upgradeBalanceJpy: number;
 }
 
 export interface ExchangeConfig {
@@ -242,6 +254,18 @@ export interface AutoAiRuntime {
   nextRunHintJa: string;
 }
 
+export interface TradingRuntimeStatus {
+  marketDataMode: 'real_public_api' | 'hybrid_fallback';
+  executionMode: 'internal_test' | 'live_exchange_disabled' | 'live_exchange';
+  liveExecutionReady: boolean;
+  realApiTickerCount: number;
+  fallbackTickerCount: number;
+  manualTickerCount: number;
+  lastMarketRefreshAt?: string;
+  messageJa: string;
+  messageZh: string;
+}
+
 export interface DashboardData {
   customer: CustomerProfile;
   balances: AssetBalance[];
@@ -260,6 +284,7 @@ export interface DashboardData {
   todayProfitJpy: string;
   tokyoNow: string;
   disclosureJa: string;
+  tradingRuntime: TradingRuntimeStatus;
 }
 
 export interface AdminSummary {
@@ -270,4 +295,7 @@ export interface AdminSummary {
   totalJpy: string;
   simulationProfitToday: string;
   auditCount: number;
+  realApiTickerCount: number;
+  fallbackTickerCount: number;
+  executionMode: TradingRuntimeStatus['executionMode'];
 }

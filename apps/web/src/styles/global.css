@@ -58,23 +58,23 @@ button:disabled {
 }
 
 .customer-shell {
-  background: #f4f8f6;
+  color: #d8e6f3;
+  background: #07111d;
 }
 
 .customer-shell::before {
   background:
-    linear-gradient(115deg, rgba(243, 248, 246, 0.94) 0%, rgba(235, 244, 241, 0.86) 42%, rgba(247, 250, 248, 0.98) 100%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1440' height='900' viewBox='0 0 1440 900'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop stop-color='%231a6d72' stop-opacity='.22'/%3E%3Cstop offset='.48' stop-color='%23ffffff' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23c7b47a' stop-opacity='.18'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1440' height='900' fill='%23f4f8f6'/%3E%3Cpath d='M-80 178 C160 68 252 250 474 141 C702 28 810 220 1058 96 C1200 25 1328 18 1526 74' fill='none' stroke='url(%23g)' stroke-width='92'/%3E%3Cpath d='M-40 710 C210 612 344 792 576 660 C770 550 932 630 1124 520 C1258 444 1370 426 1502 462' fill='none' stroke='%231a6d72' stroke-opacity='.07' stroke-width='88'/%3E%3Cg fill='%23103945' fill-opacity='.035'%3E%3Crect x='1004' y='166' width='276' height='104' rx='12'/%3E%3Crect x='922' y='302' width='394' height='126' rx='12'/%3E%3Crect x='986' y='470' width='246' height='92' rx='12'/%3E%3C/g%3E%3C/svg%3E");
+    linear-gradient(135deg, rgba(3, 9, 18, 0.98), rgba(6, 19, 34, 0.98) 48%, rgba(4, 12, 22, 0.98)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1440' height='900' viewBox='0 0 1440 900'%3E%3Crect width='1440' height='900' fill='%2307111d'/%3E%3Cg fill='none' stroke='%232b8cff' stroke-opacity='.11'%3E%3Cpath d='M0 78 H1440M0 168 H1440M0 258 H1440M0 348 H1440M0 438 H1440M0 528 H1440M0 618 H1440M0 708 H1440'/%3E%3Cpath d='M168 0 V900M336 0 V900M504 0 V900M672 0 V900M840 0 V900M1008 0 V900M1176 0 V900M1344 0 V900'/%3E%3C/g%3E%3Cpath d='M18 714 C176 554 318 740 476 584 S760 628 916 430 S1202 402 1420 182' fill='none' stroke='%2318d27d' stroke-opacity='.18' stroke-width='4'/%3E%3Cpath d='M46 228 C232 340 398 178 604 266 C814 356 1016 258 1296 334' fill='none' stroke='%232b8cff' stroke-opacity='.18' stroke-width='3'/%3E%3C/svg%3E");
   background-size: cover;
   background-position: center top;
 }
 
 .customer-shell::after {
   background:
-    linear-gradient(90deg, rgba(16, 63, 69, 0.045) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(16, 63, 69, 0.035) 1px, transparent 1px);
-  background-size: 72px 72px;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.44), transparent 74%);
+    linear-gradient(180deg, rgba(43, 140, 255, 0.08), transparent 40%),
+    linear-gradient(90deg, rgba(24, 210, 125, 0.07), transparent 30%, rgba(43, 140, 255, 0.08));
+  opacity: 0.95;
 }
 
 .admin-shell {
@@ -252,6 +252,149 @@ button:disabled {
 .admin-shell .panel p,
 .admin-shell .admin-row p {
   color: rgba(219, 233, 228, 0.7);
+}
+
+.customer-shell .topbar,
+.customer-shell .sidebar,
+.customer-shell .panel,
+.customer-shell .auth-card,
+.customer-shell .auth-hero,
+.customer-shell .metric-card,
+.customer-shell .page-head {
+  border-color: rgba(80, 129, 181, 0.28);
+  background: rgba(10, 21, 34, 0.82);
+  color: #e9f4ff;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.38);
+}
+
+.customer-shell .brand strong,
+.customer-shell .page-head h1,
+.customer-shell .panel h2,
+.customer-shell .panel h3,
+.customer-shell .metric-card strong,
+.customer-shell .profile-card strong {
+  color: #f4f9ff;
+}
+
+.customer-shell .brand small,
+.customer-shell .profile-card small,
+.customer-shell .metric-card small,
+.customer-shell .hint,
+.customer-shell .eyebrow,
+.customer-shell .panel p,
+.customer-shell .page-head p {
+  color: rgba(216, 230, 243, 0.68);
+}
+
+.customer-shell .brand-mark,
+.customer-shell .side-nav button.active,
+.customer-shell .primary-button,
+.customer-shell .segmented button.active {
+  background: linear-gradient(135deg, #1668ff, #1f8fff);
+  color: #ffffff;
+}
+
+.customer-shell .side-nav button {
+  color: rgba(216, 230, 243, 0.72);
+}
+
+.customer-shell .side-nav button:hover,
+.customer-shell .side-nav button.active {
+  box-shadow: inset 0 0 0 1px rgba(86, 159, 255, 0.28);
+}
+
+.customer-shell .avatar,
+.customer-shell .balance-pill,
+.customer-shell .disclosure,
+.customer-shell .empty-state,
+.customer-shell .rule-note,
+.customer-shell .approval-card,
+.customer-shell .requirement-box,
+.customer-shell .runtime-banner {
+  border: 1px solid rgba(43, 140, 255, 0.22);
+  background: rgba(15, 35, 55, 0.72);
+  color: #d8e6f3;
+}
+
+.customer-shell .avatar {
+  background: linear-gradient(135deg, rgba(43, 140, 255, 0.32), rgba(24, 210, 125, 0.18));
+}
+
+.customer-shell .ticker-chip,
+.customer-shell .asset-list div,
+.customer-shell .vip-card,
+.customer-shell .opportunity-card {
+  border-color: rgba(80, 129, 181, 0.24);
+  background: rgba(9, 24, 40, 0.86);
+  color: #e9f4ff;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
+}
+
+.customer-shell .ticker-chip span,
+.customer-shell .ticker-chip small,
+.customer-shell .opportunity-card p,
+.customer-shell .opportunity-card small,
+.customer-shell .asset-list span,
+.customer-shell .asset-list small {
+  color: rgba(216, 230, 243, 0.66);
+}
+
+.customer-shell .ticker-chip strong,
+.customer-shell .asset-list strong,
+.customer-shell .opportunity-card strong {
+  color: #f4f9ff;
+}
+
+.customer-shell .ticker-chip em,
+.customer-shell .opportunity-metrics strong,
+.customer-shell .runtime-banner strong {
+  color: #18d27d;
+}
+
+.customer-shell input,
+.customer-shell select,
+.customer-shell textarea {
+  border-color: rgba(80, 129, 181, 0.28);
+  background: rgba(5, 14, 25, 0.72);
+  color: #e9f4ff;
+}
+
+.customer-shell input::placeholder,
+.customer-shell textarea::placeholder {
+  color: rgba(216, 230, 243, 0.42);
+}
+
+.customer-shell table {
+  color: #d8e6f3;
+}
+
+.customer-shell th {
+  color: rgba(216, 230, 243, 0.68);
+  background: rgba(8, 23, 38, 0.92);
+}
+
+.customer-shell td {
+  border-color: rgba(80, 129, 181, 0.18);
+}
+
+.customer-shell .scanner-panel,
+.customer-shell .ai-command-panel,
+.customer-shell .market-card {
+  background:
+    linear-gradient(135deg, rgba(8, 24, 42, 0.94), rgba(10, 42, 70, 0.9)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='760' height='240' viewBox='0 0 760 240'%3E%3Cg fill='none'%3E%3Cpath d='M0 180 C112 64 224 210 354 86 S584 150 760 34' stroke='%2318d27d' stroke-opacity='.28' stroke-width='4'/%3E%3Cpath d='M0 136 H760M0 84 H760' stroke='%232b8cff' stroke-opacity='.13'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: cover;
+}
+
+.customer-shell .toggle {
+  border-color: rgba(80, 129, 181, 0.35);
+  background: rgba(9, 24, 40, 0.92);
+  color: rgba(216, 230, 243, 0.7);
+}
+
+.customer-shell .toggle.on {
+  background: linear-gradient(135deg, #18d27d, #0fb875);
+  color: #031119;
 }
 
 .warning-text {
@@ -1512,6 +1655,45 @@ select:focus {
 .execution-result.missed-detail {
   border-color: #eadfbd;
   background: #fffaf0;
+}
+
+.runtime-status-card {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+  border: 1px solid rgba(68, 203, 167, 0.24);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(21, 117, 120, 0.22), rgba(14, 36, 48, 0.86)),
+    rgba(8, 23, 31, 0.84);
+  padding: 12px;
+}
+
+.runtime-status-card div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.runtime-status-card span {
+  color: rgba(219, 233, 228, 0.62);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.runtime-status-card strong {
+  color: #f2fbf8;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.runtime-status-card p {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  color: rgba(219, 233, 228, 0.76);
+  font-size: 12px;
 }
 
 .result-grid {
