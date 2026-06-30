@@ -91,7 +91,7 @@ type AdminState = {
 
 type CustomerPage = 'dashboard' | 'kyc' | 'deposit' | 'withdraw' | 'convert' | 'ai' | 'vip' | 'invite' | 'ledger';
 type AdminPage = 'overview' | 'customers' | 'kyc' | 'deposits' | 'withdrawals' | 'balances' | 'rules' | 'audit';
-type VipDraftKey = 'dailyLimit' | 'minBalanceJpy' | 'upgradeBalanceJpy' | 'highProfitProbability';
+type VipDraftKey = 'dailyLimit' | 'minBalanceJpy' | 'upgradeBalanceJpy' | 'highProfitProbability' | 'aiPower';
 
 const customerNav: Array<{ key: CustomerPage; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'dashboard', label: 'ホーム', icon: LayoutDashboard },
@@ -457,7 +457,7 @@ function CustomerAuth(props: {
 
 function CustomerHeader({ dashboard }: { dashboard: DashboardData }) {
   const jpy = balanceOf(dashboard.balances, 'JPY');
-  const strongestTicker = dashboard.marketTickers[0];
+  const signalTicker = rotatingSignalTicker(dashboard.marketTickers);
   return (
     <section className="page-head">
       <div>
@@ -481,8 +481,8 @@ function CustomerHeader({ dashboard }: { dashboard: DashboardData }) {
             ))}
           </div>
           <div className="market-card-bottom">
-            <span>{dashboard.marketScanner.dominantPair}</span>
-            <span>{strongestTicker ? `${strongestTicker.exchangeName} ${formatJpy(strongestTicker.lastJpy)}` : 'Market standby'}</span>
+            <span>{signalTicker?.pair ?? dashboard.marketScanner.dominantPair}</span>
+            <span>{signalTicker ? `${signalTicker.exchangeName} ${formatJpy(signalTicker.lastJpy)}` : 'Market standby'}</span>
           </div>
         </div>
       </div>
@@ -798,7 +798,14 @@ function DepositPage(props: {
         </div>
         <label>
           資産
-          <select value={asset} onChange={(event) => setAsset(event.target.value as Exclude<Asset, 'JPY'>)}>
+          <select
+            value={asset}
+            onChange={(event) => {
+              const nextAsset = event.target.value as Exclude<Asset, 'JPY'>;
+              setAsset(nextAsset);
+              setNetwork(defaultNetworkForAsset(nextAsset));
+            }}
+          >
             <option value="ETH">ETH</option>
             <option value="BTC">BTC</option>
             <option value="USDT">USDT</option>
@@ -906,6 +913,7 @@ function WithdrawalPage(props: {
   refresh: (token?: string) => Promise<DashboardData>;
 }) {
   const [asset, setAsset] = useState<Asset>('JPY');
+  const [network, setNetwork] = useState<'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum' | 'Bank'>('Bank');
   const [amount, setAmount] = useState('10000');
   const [destinationType, setDestinationType] = useState<'bank' | 'wallet'>('bank');
   const [destinationText, setDestinationText] = useState('');
@@ -918,7 +926,16 @@ function WithdrawalPage(props: {
       () =>
         props.call(
           '/customer/withdrawals',
-          { method: 'POST', body: JSON.stringify({ asset, amount, destinationType, destinationText, note }) },
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              asset,
+              amount,
+              destinationType,
+              destinationText: asset === 'JPY' ? destinationText : `${network} / ${destinationText}`,
+              note,
+            }),
+          },
           props.token,
         ),
       '出金申請を送信しました。審査完了までお待ちください。',
@@ -946,7 +963,11 @@ function WithdrawalPage(props: {
               className={asset === balance.asset ? 'asset-option active' : 'asset-option'}
               key={balance.asset}
               type="button"
-              onClick={() => setAsset(balance.asset)}
+              onClick={() => {
+                setAsset(balance.asset);
+                setNetwork(defaultNetworkForWithdraw(balance.asset));
+                setDestinationType(balance.asset === 'JPY' ? 'bank' : 'wallet');
+              }}
             >
               <span>{balance.asset}</span>
               <strong>{balance.asset === 'JPY' ? formatJpy(balance.available) : balance.available}</strong>
@@ -956,13 +977,38 @@ function WithdrawalPage(props: {
         </div>
         <label>
           出金資産
-          <select value={asset} onChange={(event) => setAsset(event.target.value as Asset)}>
+          <select
+            value={asset}
+            onChange={(event) => {
+              const nextAsset = event.target.value as Asset;
+              setAsset(nextAsset);
+              setNetwork(defaultNetworkForWithdraw(nextAsset));
+              setDestinationType(nextAsset === 'JPY' ? 'bank' : 'wallet');
+            }}
+          >
             <option value="JPY">JPY</option>
             <option value="USDT">USDT</option>
             <option value="BTC">BTC</option>
             <option value="ETH">ETH</option>
           </select>
         </label>
+        {asset !== 'JPY' ? (
+          <label>
+            ネットワーク
+            <select value={network} onChange={(event) => setNetwork(event.target.value as typeof network)}>
+              {asset === 'USDT' ? (
+                <>
+                  <option value="TRC-20">USDT TRC-20</option>
+                  <option value="ERC-20">USDT ERC-20</option>
+                </>
+              ) : asset === 'BTC' ? (
+                <option value="Bitcoin">Bitcoin</option>
+              ) : (
+                <option value="Ethereum">Ethereum</option>
+              )}
+            </select>
+          </label>
+        ) : null}
         <label>
           数量
           <input value={amount} onChange={(event) => setAmount(event.target.value)} />
@@ -979,7 +1025,7 @@ function WithdrawalPage(props: {
           <input
             value={destinationText}
             onChange={(event) => setDestinationText(event.target.value)}
-            placeholder={destinationType === 'bank' ? '銀行名 / 支店 / 口座番号 / 名義' : 'ネットワーク / ウォレットアドレス'}
+            placeholder={destinationType === 'bank' ? '銀行名 / 支店 / 口座番号 / 名義' : `${network} / ウォレットアドレス`}
           />
         </label>
         <label>
@@ -1547,7 +1593,7 @@ function AiPage(props: {
       ) : null}
       <h3>注文履歴</h3>
         <DataTable
-        columns={['業務番号', '結果', '実行', '行情', '取引所', '資産', '元本', '粗利益', '控除', '純利益', '理由', '時刻']}
+        columns={['業務番号', '結果', 'AI实行', '行情', '取引所', '資産', '元本', '粗利益', '控除', '純利益', '理由', '時刻']}
         rows={props.dashboard.orders.map((order) => [
           order.businessNo,
           order.status === 'settled' ? '成功' : order.status === 'failed' ? '失敗' : orderStatusJa(order.status),
@@ -2333,6 +2379,7 @@ function AdminRules(props: {
           minBalanceJpy: String(rule.minBalanceJpy),
           upgradeBalanceJpy: String(rule.upgradeBalanceJpy),
           highProfitProbability: String(rule.highProfitProbability),
+          aiPower: rule.aiPower,
         },
       ]),
     ) as Record<VipLevel, Partial<Record<VipDraftKey, string>>>,
@@ -2352,6 +2399,7 @@ function AdminRules(props: {
             minBalanceJpy: String(rule.minBalanceJpy),
             upgradeBalanceJpy: String(rule.upgradeBalanceJpy),
             highProfitProbability: String(rule.highProfitProbability),
+            aiPower: rule.aiPower,
           },
         ]),
       ) as Record<VipLevel, Partial<Record<VipDraftKey, string>>>,
@@ -2383,6 +2431,7 @@ function AdminRules(props: {
       minBalanceJpy: Number(draft.minBalanceJpy ?? rule.minBalanceJpy),
       upgradeBalanceJpy: Number(draft.upgradeBalanceJpy ?? rule.upgradeBalanceJpy),
       highProfitProbability: Number(draft.highProfitProbability ?? rule.highProfitProbability),
+      aiPower: draft.aiPower ?? rule.aiPower,
     };
     const result = await props.run(
       () =>
@@ -2455,6 +2504,14 @@ function AdminRules(props: {
                     type="number"
                     value={vipDrafts[rule.level]?.highProfitProbability ?? String(rule.highProfitProbability)}
                     onChange={(event) => setVipDraft(rule.level, 'highProfitProbability', event.target.value)}
+                  />
+                </label>
+                <label>
+                  AI算力
+                  <input
+                    value={vipDrafts[rule.level]?.aiPower ?? rule.aiPower}
+                    onChange={(event) => setVipDraft(rule.level, 'aiPower', event.target.value)}
+                    placeholder="例：2x"
                   />
                 </label>
                 <button className="secondary-button" type="button" onClick={() => void updateVip(rule)}>
@@ -2646,6 +2703,23 @@ function networkForAsset(asset: Exclude<Asset, 'JPY'>, selected: 'TRC-20' | 'ERC
   return selected === 'ERC-20' ? 'ERC-20' : 'TRC-20';
 }
 
+function defaultNetworkForAsset(asset: Exclude<Asset, 'JPY'>) {
+  if (asset === 'BTC') {
+    return 'Bitcoin' as const;
+  }
+  if (asset === 'ETH') {
+    return 'Ethereum' as const;
+  }
+  return 'TRC-20' as const;
+}
+
+function defaultNetworkForWithdraw(asset: Asset) {
+  if (asset === 'JPY') {
+    return 'Bank' as const;
+  }
+  return defaultNetworkForAsset(asset);
+}
+
 function tickerStatusLabel(ticker: MarketTicker) {
   const spread = Number(ticker.spreadPercent);
   if (ticker.source === 'real_api' && spread < 0.25) {
@@ -2667,11 +2741,17 @@ function adminVipLimit(state: AdminState, level: VipLevel) {
 
 function aiPowerScore(dashboard: DashboardData) {
   const rule = vipRule(dashboard);
-  const credit = dashboard.customer.creditScore ?? 80;
-  const successRate = dashboard.customer.successRatePercent ?? 90;
-  const remaining = Math.max(0, dashboard.todayLimit - dashboard.todayUsed);
-  const base = Number(rule.aiPower.replace('x', '')) || 1;
-  return `${Math.max(1, Math.round(base + credit / 25 + successRate / 50 + Math.min(3, remaining)))}x`;
+  return rule.aiPower;
+}
+
+function rotatingSignalTicker(tickers: MarketTicker[]) {
+  if (!tickers.length) {
+    return undefined;
+  }
+  const bucket = Math.floor(Date.now() / 5000);
+  const realApi = tickers.filter((ticker) => ticker.source === 'real_api');
+  const pool = realApi.length ? realApi : tickers;
+  return pool[bucket % pool.length];
 }
 
 function formatJpy(value: string | number) {
@@ -2758,8 +2838,8 @@ function executionModeZh(mode?: DashboardData['tradingRuntime']['executionMode']
 
 function executionVenueJa(venue?: SimulationOrder['executionVenue']) {
   const labels: Record<NonNullable<SimulationOrder['executionVenue']>, string> = {
-    internal_test: '完了',
-    live_exchange: '取引所発注完了',
+    internal_test: 'AI实行完了',
+    live_exchange: '取引所AI实行完了',
   };
   return venue ? labels[venue] : '-';
 }

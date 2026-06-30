@@ -384,6 +384,11 @@ button:disabled {
   color: rgba(18, 48, 54, 0.74);
 }
 
+.customer-shell .conversion-help > p,
+.customer-shell .quote-card > p {
+  color: #31515a !important;
+}
+
 .customer-shell .quote-card strong,
 .customer-shell .conversion-help strong,
 .customer-shell .proof-preview strong,
@@ -1711,7 +1716,12 @@ select:focus {
 .customer-shell .vip-card.active strong,
 .customer-shell .vip-card.active span,
 .customer-shell .vip-card.active small {
-  color: #f3fbf8;
+  color: #f3fbf8 !important;
+}
+
+.customer-shell .opportunity-card.missed-card .opportunity-metrics span,
+.customer-shell .opportunity-card.missed-card .opportunity-metrics strong {
+  color: #f0b84a !important;
 }
 
 .customer-shell .execution-result,

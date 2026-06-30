@@ -905,7 +905,7 @@ export class AppService {
       inviteUrl: `/register?invite=${customer.inviteCode}`,
       invited: invited.map((item) => this.publicCustomer(item)),
       rewards,
-      rule: '邀请人与下线均 KYC 后，可按后台规则获得冻结返佣，审核后入账。',
+      rule: '招待者と招待されたお客様の本人確認が完了した後、管理部門の承認により招待報酬が反映されます。',
     };
   }
 
@@ -1162,6 +1162,7 @@ export class AppService {
       highProfitThresholdJpy: Number(input.highProfitThresholdJpy ?? rule.highProfitThresholdJpy),
       highProfitProbability: Number(input.highProfitProbability ?? rule.highProfitProbability),
       upgradeBalanceJpy: Number(input.upgradeBalanceJpy ?? rule.upgradeBalanceJpy),
+      aiPower: typeof input.aiPower === 'string' && input.aiPower.trim() ? input.aiPower.trim() : rule.aiPower,
     });
     this.audit('vip.update', operator, 'vip_rule', level, '修改 VIP / 利润规则');
     return this.adminState();
@@ -1629,17 +1630,23 @@ export class AppService {
     }
     const attemptNumber = todayAttempts + 1;
     const dailyLimit = Math.max(1, this.effectiveDailyLimit(customer));
-    const expectedFailuresByNow = Math.round((attemptNumber * (100 - successRate)) / 100);
     const expectedFailuresToday = Math.round((dailyLimit * (100 - successRate)) / 100);
-    if (todayMissed < expectedFailuresByNow) {
+    if (expectedFailuresToday <= 0) {
+      return false;
+    }
+    if (todayMissed >= expectedFailuresToday) {
+      return false;
+    }
+    const failureSlots = new Set<number>();
+    for (let index = 1; index <= expectedFailuresToday; index += 1) {
+      failureSlots.add(Math.max(1, Math.min(dailyLimit, Math.round((index * dailyLimit) / (expectedFailuresToday + 1)))));
+    }
+    if (failureSlots.has(attemptNumber)) {
       return true;
     }
     const remainingAttemptsAfterThis = Math.max(0, dailyLimit - attemptNumber);
     const requiredRemainingFailures = Math.max(0, expectedFailuresToday - todayMissed);
-    if (requiredRemainingFailures > remainingAttemptsAfterThis) {
-      return true;
-    }
-    return false;
+    return requiredRemainingFailures > remainingAttemptsAfterThis;
   }
 
   private missOpportunity(customer: CustomerRecord, opportunity: SimulationOpportunity, overrideReason?: string, mode: 'manual' | 'auto' = 'manual') {
