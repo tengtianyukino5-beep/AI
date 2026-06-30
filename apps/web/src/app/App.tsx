@@ -503,13 +503,14 @@ function CustomerDashboard(props: {
 
       <section className="metric-grid">
         <Metric icon={Wallet} label="JPY利用可能残高" value={formatJpy(jpy.available)} note="JPY残高に即時反映" />
+        <Metric icon={LineChart} label="本日収益" value={formatJpy(dashboard.todayProfitJpy)} note="AI裁定の実績利益" />
         <Metric icon={BadgeCheck} label="VIPレベル" value={dashboard.customer.vipLevel} note={`${dashboard.todayUsed}/${dashboard.todayLimit} 本日利用`} />
         <Metric icon={ShieldCheck} label="本人確認" value={kycLabelJa(dashboard.customer.kycStatus)} note={autoDisabled ? 'AI裁定はロック中' : 'AI裁定を利用できます'} />
         <Metric
           icon={Gauge}
           label="AI算力"
           value={aiPowerScore(dashboard)}
-          note={autoDisabled ? '本人確認後に利用可能' : `信用${dashboard.customer.creditScore ?? 80} / 成功率${dashboard.customer.successRatePercent ?? 90}%`}
+          note={autoDisabled ? '本人確認後に利用可能' : `信用${dashboard.customer.creditScore ?? 80} / 残り${Math.max(0, dashboard.todayLimit - dashboard.todayUsed)}回`}
         />
       </section>
 
@@ -699,6 +700,7 @@ function DepositPage(props: {
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
   refresh: (token?: string) => Promise<DashboardData>;
 }) {
+  const [submitting, setSubmitting] = useState(false);
   const [asset, setAsset] = useState<Exclude<Asset, 'JPY'>>('ETH');
   const [amount, setAmount] = useState('1');
   const [proofText, setProofText] = useState('');
@@ -711,24 +713,33 @@ function DepositPage(props: {
       await props.run(() => Promise.reject(new Error('送金証明写真をアップロードしてください。')));
       return;
     }
+    if (!amount || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+      await props.run(() => Promise.reject(new Error('入金数量を入力してください。')));
+      return;
+    }
     if (!proofText.trim()) {
       await props.run(() => Promise.reject(new Error('送金TxIDまたは受付番号を入力してください。')));
       return;
     }
-    const result = await props.run(
-      () =>
-        props.call(
-          '/customer/deposits',
-          { method: 'POST', body: JSON.stringify({ asset, amount, proofText, proofImageName: proofFileName, proofImageDataUrl: proofPreview }) },
-          props.token,
-        ),
-      '入金申請を送信しました。審査完了までお待ちください。',
-    );
-    if (result) {
-      setProofText('');
-      setProofFileName('');
-      setProofPreview('');
-      await props.refresh();
+    setSubmitting(true);
+    try {
+      const result = await props.run(
+        () =>
+          props.call(
+            '/customer/deposits',
+            { method: 'POST', body: JSON.stringify({ asset, amount, proofText, proofImageName: proofFileName, proofImageDataUrl: proofPreview }) },
+            props.token,
+          ),
+        '入金申請を送信しました。審査完了までお待ちください。',
+      );
+      if (result) {
+        setProofText('');
+        setProofFileName('');
+        setProofPreview('');
+        await props.refresh();
+      }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -788,8 +799,8 @@ function DepositPage(props: {
           )}
         </div>
         {proofFileName ? <p className="upload-note">選択済み：{proofFileName}</p> : null}
-        <button className="primary-button" type="submit">
-          入金申請
+        <button className="primary-button" disabled={submitting} type="submit">
+          {submitting ? '送信中...' : '入金申請'}
         </button>
       </form>
       <aside className="panel deposit-guide">
@@ -1222,7 +1233,7 @@ function AiPage(props: {
             }}
           >
             <Clock3 size={18} />
-            <span>{props.dashboard.autoAiRuntime.lastMissedReasonJa ?? '直近の裁定機会は見送りとなりました。'}</span>
+            <span>{props.dashboard.autoAiRuntime.lastMissedReasonJa ?? '直近の裁定機会は失敗となりました。'}</span>
           </button>
         ) : null}
         <div className="scanner-grid">
@@ -1346,18 +1357,18 @@ function AiPage(props: {
           </div>
         </div>
       ) : null}
-      <h3>見送り履歴</h3>
+      <h3>失敗履歴</h3>
       <div className="cards-list compact-list">
-        {props.dashboard.missedOpportunities.length === 0 ? <EmptyState text="見送りとなった裁定機会はまだありません。" /> : null}
+        {props.dashboard.missedOpportunities.length === 0 ? <EmptyState text="失敗した裁定機会はまだありません。" /> : null}
         {props.dashboard.missedOpportunities.map((opportunity) => (
           <article className="opportunity-card missed-card" key={opportunity.id}>
             <div>
               <strong>{opportunity.pair} / {opportunity.spreadPercent}%</strong>
               <p>{`${opportunity.exchanges[0]} -> ${opportunity.exchanges[1]}`}</p>
-              <small>{opportunity.missedReasonJa ?? '市場条件の変動により見送りとなりました。'}</small>
+              <small>{opportunity.missedReasonJa ?? '市場条件の変動により失敗となりました。'}</small>
             </div>
             <div className="opportunity-metrics">
-              <span>見送り</span>
+              <span>失敗</span>
               <strong>{formatTime(opportunity.missedAt ?? opportunity.createdAt)}</strong>
               <button className="ghost-button" type="button" onClick={() => setMissedSelected(opportunity)}>
                 詳細
@@ -1371,7 +1382,7 @@ function AiPage(props: {
           <div className="panel-head">
             <div>
               <p className="eyebrow">Missed Opportunity</p>
-              <h3>{missedSelected.pair} 見送り詳細</h3>
+              <h3>{missedSelected.pair} 失敗詳細</h3>
             </div>
             <Clock3 size={22} />
           </div>
@@ -1398,7 +1409,7 @@ function AiPage(props: {
             <strong>{missedSelected.confidencePercent}%</strong>
             <span>流動性</span>
             <strong>{missedSelected.liquidityScore}</strong>
-            <span>見送り時刻</span>
+            <span>失敗時刻</span>
             <strong>{formatTime(missedSelected.missedAt ?? missedSelected.createdAt)}</strong>
           </div>
           <p>{missedSelected.missedDetailJa ?? missedSelected.missedReasonJa ?? missedSelected.aiSummaryJa}</p>
@@ -1444,11 +1455,11 @@ function AiPage(props: {
         </div>
       ) : null}
       <h3>注文履歴</h3>
-      <DataTable
-        columns={['業務番号', '状態', '資産', '元本', '粗利益', '控除', '純利益', '時刻']}
+        <DataTable
+        columns={['業務番号', '結果', '資産', '元本', '粗利益', '控除', '純利益', '時刻']}
         rows={props.dashboard.orders.map((order) => [
           order.businessNo,
-          orderStatusJa(order.status),
+          order.status === 'settled' ? '成功' : orderStatusJa(order.status),
           order.baseAsset ?? '-',
           formatJpy(order.principalJpy),
           formatJpy(order.grossProfitJpy ?? '0'),
@@ -1538,7 +1549,7 @@ function InvitePage(props: {
       {info ? (
         <>
           <div className="code-box">{info.inviteCode}</div>
-          <p>{info.inviteUrl}</p>
+          <p>{`${window.location.origin}${info.inviteUrl}`}</p>
           <p>{info.rule}</p>
           <DataTable
             columns={['報酬ID', '金額', '状態', '時刻']}
@@ -2081,10 +2092,16 @@ function AdminBalanceAdjust(props: {
   refresh: (token?: string) => Promise<AdminState>;
 }) {
   const [customerId, setCustomerId] = useState(props.state.customers[0]?.id ?? '');
+  const [query, setQuery] = useState('');
   const [asset, setAsset] = useState<Asset>('JPY');
   const [amount, setAmount] = useState('10000');
   const [direction, setDirection] = useState<'credit' | 'debit'>('credit');
   const [reason, setReason] = useState('后台测试调账');
+  const filteredCustomers = props.state.customers.filter((customer) => {
+    const text = `${customer.id} ${customer.email} ${customer.name} ${customer.inviteCode}`.toLowerCase();
+    return text.includes(query.toLowerCase().trim());
+  });
+  const selectedCustomer = props.state.customers.find((customer) => customer.id === customerId);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -2108,13 +2125,32 @@ function AdminBalanceAdjust(props: {
           <Banknote size={22} />
         </div>
         <label>
-          客户
+          搜索客户 UID / 邮箱 / 邀请码 / 姓名
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入 UID、邮箱、邀请码或姓名" />
+        </label>
+        <div className="customer-search-list">
+          {filteredCustomers.slice(0, 8).map((customer) => (
+            <button className={customer.id === customerId ? 'active' : ''} key={customer.id} type="button" onClick={() => setCustomerId(customer.id)}>
+              <strong>{customer.email}</strong>
+              <span>UID {customer.id}</span>
+              <small>{customer.name} / {customer.vipLevel} / 邀请码 {customer.inviteCode}</small>
+            </button>
+          ))}
+        </div>
+        <label>
+          已选客户
           <select value={customerId} onChange={(event) => setCustomerId(event.target.value)}>
             {props.state.customers.map((customer) => (
-              <option key={customer.id} value={customer.id}>{customer.email}</option>
+              <option key={customer.id} value={customer.id}>{customer.email} / {customer.id}</option>
             ))}
           </select>
         </label>
+        {selectedCustomer ? (
+          <div className="rule-note">
+            <strong>{selectedCustomer.email}</strong>
+            <p>UID：{selectedCustomer.id} / VIP：{selectedCustomer.vipLevel} / 邀请码：{selectedCustomer.inviteCode}</p>
+          </div>
+        ) : null}
         <label>
           资产
           <select value={asset} onChange={(event) => setAsset(event.target.value as Asset)}>
@@ -2168,10 +2204,17 @@ function AdminRules(props: {
   const [exchangeDrafts, setExchangeDrafts] = useState<Record<string, string>>(() =>
     Object.fromEntries(props.state.exchanges.map((exchange) => [exchange.id, String(exchange.intervalSeconds)])),
   );
+  const [vipDrafts, setVipDrafts] = useState<Record<VipLevel, string>>(() =>
+    Object.fromEntries(props.state.vipRules.map((rule) => [rule.level, String(rule.dailyLimit)])) as Record<VipLevel, string>,
+  );
 
   useEffect(() => {
     setExchangeDrafts(Object.fromEntries(props.state.exchanges.map((exchange) => [exchange.id, String(exchange.intervalSeconds)])));
   }, [props.state.exchanges]);
+
+  useEffect(() => {
+    setVipDrafts(Object.fromEntries(props.state.vipRules.map((rule) => [rule.level, String(rule.dailyLimit)])) as Record<VipLevel, string>);
+  }, [props.state.vipRules]);
 
   async function updateExchange(exchange: ExchangeConfig, intervalSeconds: number, enabled = exchange.enabled) {
     const result = await props.run(
@@ -2222,9 +2265,20 @@ function AdminRules(props: {
                 <p>{formatJpy(rule.minBalanceJpy)} / {rule.dailyLimit} 次 / 日 / AI {rule.aiPower}</p>
                 <small>VIP 只控制东京自然日内的套利机会次数，利润由行情价差与成本公式计算。</small>
               </div>
-              <button className="secondary-button" type="button" onClick={() => void updateVip(rule, rule.dailyLimit + 1)}>
-                次数 +1
-              </button>
+              <div className="vip-limit-editor">
+                <label>
+                  每日次数
+                  <input
+                    min="0"
+                    type="number"
+                    value={vipDrafts[rule.level] ?? String(rule.dailyLimit)}
+                    onChange={(event) => setVipDrafts((drafts) => ({ ...drafts, [rule.level]: event.target.value }))}
+                  />
+                </label>
+                <button className="secondary-button" type="button" onClick={() => void updateVip(rule, Number(vipDrafts[rule.level] ?? rule.dailyLimit))}>
+                  保存
+                </button>
+              </div>
             </article>
           ))}
         </div>

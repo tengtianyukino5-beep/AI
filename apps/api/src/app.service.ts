@@ -536,6 +536,7 @@ export class AppService {
       autoAiRuntime,
       todayUsed: this.todayAttemptCount(customer),
       todayLimit: this.effectiveDailyLimit(customer),
+      todayProfitJpy: this.todayProfitJpy(customer),
       tokyoNow: this.tokyoNow(),
       disclosureJa,
     };
@@ -599,9 +600,6 @@ export class AppService {
     if (Number(balance.available) < amount) {
       throw new Error('利用可能残高が不足しています。');
     }
-    balance.available = String(Number(balance.available) - amount);
-    balance.frozen = String(Number(balance.frozen) + amount);
-    balance.balanceVersion += 1;
     const withdrawal: WithdrawalOrder = {
       id: this.id('wd'),
       businessNo: this.businessNo('WDR'),
@@ -621,12 +619,12 @@ export class AppService {
       customerId: customer.id,
       asset: input.asset,
       ledgerType: 'withdrawal',
-      direction: 'freeze',
+      direction: 'out',
       amount: input.amount,
       balanceAfter: balance.available,
       ledgerStatus: 'pending',
       titleJa: '出金申請',
-      titleZh: '出金冻结',
+      titleZh: '出金申请待审核',
       note: input.destinationText,
       createdAt: this.now(),
     });
@@ -757,7 +755,7 @@ export class AppService {
     const rewards = this.inviteRewards.filter((item) => item.inviterCustomerId === customer.id);
     return {
       inviteCode: customer.inviteCode,
-      inviteUrl: `https://example.local/register?invite=${customer.inviteCode}`,
+      inviteUrl: `/register?invite=${customer.inviteCode}`,
       invited: invited.map((item) => this.publicCustomer(item)),
       rewards,
       rule: '邀请人与下线均 KYC 后，可按后台规则获得冻结返佣，审核后入账。',
@@ -855,7 +853,13 @@ export class AppService {
     }
     const balance = this.balance(withdrawal.customerId, withdrawal.asset);
     const amount = Number(withdrawal.amount);
-    balance.frozen = String(Math.max(0, Number(balance.frozen) - amount));
+    if (Number(balance.available) < amount) {
+      throw new Error('客户可用余额不足，无法完成出金');
+    }
+    balance.available =
+      withdrawal.asset === 'JPY'
+        ? String(Math.round(Number(balance.available) - amount))
+        : this.formatDecimal(Number(balance.available) - amount);
     balance.balanceVersion += 1;
     withdrawal.status = 'approved';
     withdrawal.completedAt = this.now();
@@ -887,10 +891,6 @@ export class AppService {
       return this.adminState();
     }
     const balance = this.balance(withdrawal.customerId, withdrawal.asset);
-    const amount = Number(withdrawal.amount);
-    balance.frozen = String(Math.max(0, Number(balance.frozen) - amount));
-    balance.available = String(Number(balance.available) + amount);
-    balance.balanceVersion += 1;
     withdrawal.status = 'rejected';
     this.ledger.unshift({
       id: this.id('led'),
@@ -898,16 +898,16 @@ export class AppService {
       customerId: withdrawal.customerId,
       asset: withdrawal.asset,
       ledgerType: 'reversal',
-      direction: 'unfreeze',
+      direction: 'out',
       amount: withdrawal.amount,
       balanceAfter: balance.available,
       ledgerStatus: 'posted',
       titleJa: '出金差戻し',
-      titleZh: '出金驳回返还',
+      titleZh: '出金驳回',
       note: withdrawal.destinationText,
       createdAt: this.now(),
     });
-    this.audit('withdrawal.reject', operator, 'withdrawal', withdrawal.id, '出金驳回并返还冻结余额');
+    this.audit('withdrawal.reject', operator, 'withdrawal', withdrawal.id, '出金驳回，余额保持不变');
     return this.adminState();
   }
 
@@ -1486,6 +1486,15 @@ export class AppService {
     return this.todayOrderCount(customer) + this.todayMissedCount(customer);
   }
 
+  private todayProfitJpy(customer: CustomerRecord) {
+    const today = this.businessDateTokyo();
+    return String(
+      this.orders
+        .filter((order) => order.customerId === customer.id && order.status === 'settled' && this.tokyoDate(order.createdAt) === today)
+        .reduce((sum, order) => sum + Number(order.profitJpy), 0),
+    );
+  }
+
   private effectiveDailyLimit(customer: CustomerRecord) {
     const manual = Number(customer.manualDailyLimit);
     if (Number.isFinite(manual) && manual >= 0) {
@@ -1975,7 +1984,11 @@ export class AppService {
   }
 
   private inviteCode() {
-    return Math.random().toString(36).slice(2, 8).toUpperCase();
+    let code = '';
+    do {
+      code = Math.random().toString(36).slice(2, 8).toUpperCase();
+    } while ([...this.customers.values()].some((customer) => customer.inviteCode === code));
+    return code;
   }
 
   private now() {

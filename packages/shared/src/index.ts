@@ -257,6 +257,7 @@ export interface DashboardData {
   autoAiRuntime: AutoAiRuntime;
   todayUsed: number;
   todayLimit: number;
+  todayProfitJpy: string;
   tokyoNow: string;
   disclosureJa: string;
 }

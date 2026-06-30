@@ -1267,6 +1267,62 @@ select:focus {
   min-height: 38px;
 }
 
+.customer-search-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.customer-search-list button {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(143, 215, 199, 0.18);
+  border-radius: 8px;
+  background: rgba(6, 22, 30, 0.58);
+  color: #dbe9e4;
+  padding: 10px;
+  text-align: left;
+}
+
+.customer-search-list button.active {
+  border-color: rgba(143, 215, 199, 0.56);
+  background: rgba(15, 118, 110, 0.24);
+}
+
+.customer-search-list span,
+.customer-search-list small {
+  color: rgba(219, 233, 228, 0.66);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.vip-limit-editor {
+  display: grid;
+  grid-template-columns: 130px auto;
+  gap: 8px;
+  align-items: end;
+  min-width: 210px;
+}
+
+.vip-limit-editor label {
+  display: grid;
+  gap: 5px;
+  color: rgba(219, 233, 228, 0.72);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.vip-limit-editor input {
+  min-height: 40px;
+  border: 1px solid rgba(143, 215, 199, 0.24);
+  border-radius: 8px;
+  background: rgba(6, 22, 30, 0.84);
+  color: #edf8f5;
+  padding: 0 10px;
+  font: inherit;
+}
+
 .rule-note {
   margin-bottom: 12px;
   background: rgba(143, 215, 199, 0.1);
