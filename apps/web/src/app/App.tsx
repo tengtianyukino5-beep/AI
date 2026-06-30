@@ -159,6 +159,14 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [adminToken]);
 
+  useEffect(() => {
+    if (!toast) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setToast(''), 5000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
   async function call<T>(path: string, options: RequestInit = {}, token?: string) {
     const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
     const response = await fetch(`${API_BASE}${path}`, {
@@ -714,6 +722,7 @@ function DepositPage(props: {
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [asset, setAsset] = useState<Exclude<Asset, 'JPY'>>('ETH');
+  const [network, setNetwork] = useState<'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum'>('Ethereum');
   const [amount, setAmount] = useState('1');
   const [proofText, setProofText] = useState('');
   const [proofFileName, setProofFileName] = useState('');
@@ -744,9 +753,10 @@ function DepositPage(props: {
               body: JSON.stringify({
                 asset,
                 amount,
+                network,
                 proofText,
                 proofImageName: proofFileName,
-                proofImageDataUrl: proofPreview.length <= 180000 ? proofPreview : undefined,
+                proofImageDataUrl: proofPreview.length <= 60000 ? proofPreview : undefined,
               }),
             },
             props.token,
@@ -771,13 +781,7 @@ function DepositPage(props: {
       return;
     }
     setProofFileName(file.name);
-    if (file.size > 180000) {
-      void compactImage(file).then(setProofPreview).catch(() => setProofPreview(''));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => setProofPreview(typeof reader.result === 'string' ? reader.result : '');
-    reader.readAsDataURL(file);
+    void compactImage(file).then(setProofPreview).catch(() => setProofPreview(''));
   }
 
   const depositGuide = depositGuideFor(asset);
@@ -798,6 +802,24 @@ function DepositPage(props: {
             <option value="ETH">ETH</option>
             <option value="BTC">BTC</option>
             <option value="USDT">USDT</option>
+          </select>
+        </label>
+        <label>
+          ネットワーク
+          <select
+            value={networkForAsset(asset, network)}
+            onChange={(event) => setNetwork(event.target.value as typeof network)}
+          >
+            {asset === 'USDT' ? (
+              <>
+                <option value="TRC-20">USDT TRC-20</option>
+                <option value="ERC-20">USDT ERC-20</option>
+              </>
+            ) : asset === 'BTC' ? (
+              <option value="Bitcoin">Bitcoin</option>
+            ) : (
+              <option value="Ethereum">Ethereum</option>
+            )}
           </select>
         </label>
         <label>
@@ -860,10 +882,11 @@ function DepositPage(props: {
           <History size={22} />
         </div>
         <DataTable
-          columns={['受付番号', '資産', '数量', '状態', '証明', '申請時刻']}
+          columns={['受付番号', '資産', 'ネットワーク', '数量', '状態', '証明', '申請時刻']}
           rows={props.dashboard.deposits.map((deposit) => [
             deposit.businessNo,
             deposit.asset,
+            deposit.network ?? '-',
             deposit.amount,
             depositStatusJa(deposit.status),
             deposit.proofImageName || deposit.proofText,
@@ -1182,6 +1205,7 @@ function AiPage(props: {
   const [selected, setSelected] = useState<SimulationOpportunity | null>(null);
   const [missedSelected, setMissedSelected] = useState<SimulationOpportunity | null>(null);
   const autoDisabled = props.dashboard.customer.kycStatus !== 'approved';
+  const dailyLimitReached = props.dashboard.todayUsed >= props.dashboard.todayLimit;
 
   async function toggleAuto() {
     const next = !props.dashboard.customer.autoAiEnabled;
@@ -1272,7 +1296,7 @@ function AiPage(props: {
           </div>
           <div>
             <span>市場監視</span>
-            <strong>{props.dashboard.marketScanner.signalState === 'opportunity' ? '裁定検出' : '監視中'}</strong>
+            <strong>{dailyLimitReached ? '本日上限到達' : props.dashboard.marketScanner.signalState === 'opportunity' ? '裁定検出' : '監視中'}</strong>
           </div>
           <div>
             <span>検出ペア</span>
@@ -1306,7 +1330,13 @@ function AiPage(props: {
         </div>
         <Search size={22} />
       </div>
-      <div className="cards-list">
+        <div className="cards-list">
+        {dailyLimitReached ? (
+          <div className="runtime-banner light warning-runtime">
+            <Clock3 size={18} />
+            <span>本日の利用回数は完了しました。市場シグナルは監視表示のみ更新され、東京時間の翌日から実行できます。</span>
+          </div>
+        ) : null}
         {props.dashboard.opportunities.length === 0 ? <EmptyState text={props.dashboard.autoAiRuntime.stage === 'settled' ? '直近のAI裁定は処理済みです。次の市場シグナルを監視しています。' : '現在利用可能な裁定機会はありません。'} /> : null}
         {props.dashboard.opportunities.map((opportunity) => (
           <article className="opportunity-card" key={opportunity.id}>
@@ -1330,7 +1360,7 @@ function AiPage(props: {
               <span>{opportunity.spreadPercent}%</span>
               <strong>{formatJpy(opportunity.estimatedProfitJpy)}</strong>
               <button className="primary-button" disabled={opportunity.status !== 'available'} type="button" onClick={() => setSelected(opportunity)}>
-                詳細を確認
+                {dailyLimitReached ? '詳細を確認' : '詳細を確認'}
               </button>
             </div>
           </article>
@@ -1390,8 +1420,8 @@ function AiPage(props: {
             <span className="active">3. 利益反映</span>
           </div>
           <div className="row-actions">
-            <button className="primary-button" type="button" onClick={() => void execute(selected.id)}>
-              この内容で実行
+            <button className="primary-button" disabled={dailyLimitReached} type="button" onClick={() => void execute(selected.id)}>
+              {dailyLimitReached ? '本日上限に到達' : 'この内容で実行'}
             </button>
             <button className="ghost-button" type="button" onClick={() => setSelected(null)}>
               閉じる
@@ -2040,7 +2070,7 @@ function AdminDeposits(props: {
         rows={props.state.deposits.map((deposit) => [
           deposit.businessNo,
           customerEmail(props.state, deposit.customerId),
-          deposit.asset,
+          `${deposit.asset}${deposit.network ? ` / ${deposit.network}` : ''}`,
           deposit.amount,
           <button className="link-button" type="button" onClick={() => setSelectedDeposit(deposit)}>
             查看凭证
@@ -2588,7 +2618,7 @@ function compactImage(file: File) {
       image.onerror = () => reject(new Error('画像を圧縮できませんでした。'));
       image.onload = () => {
         const canvas = document.createElement('canvas');
-        const maxEdge = 900;
+        const maxEdge = 520;
         const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
         canvas.width = Math.max(1, Math.round(image.width * scale));
         canvas.height = Math.max(1, Math.round(image.height * scale));
@@ -2598,12 +2628,22 @@ function compactImage(file: File) {
           return;
         }
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.72));
+        resolve(canvas.toDataURL('image/jpeg', 0.52));
       };
       image.src = typeof reader.result === 'string' ? reader.result : '';
     };
     reader.readAsDataURL(file);
   });
+}
+
+function networkForAsset(asset: Exclude<Asset, 'JPY'>, selected: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum') {
+  if (asset === 'BTC') {
+    return 'Bitcoin';
+  }
+  if (asset === 'ETH') {
+    return 'Ethereum';
+  }
+  return selected === 'ERC-20' ? 'ERC-20' : 'TRC-20';
 }
 
 function tickerStatusLabel(ticker: MarketTicker) {
@@ -2700,7 +2740,7 @@ function orderStatusJa(status: SimulationOrder['status']) {
 
 function executionModeJa(mode?: DashboardData['tradingRuntime']['executionMode']) {
   const labels: Record<DashboardData['tradingRuntime']['executionMode'], string> = {
-    internal_test: '内部テスト実行',
+    internal_test: '内部AI実行',
     live_exchange_disabled: 'ライブ発注未設定',
     live_exchange: 'ライブ取引所発注',
   };
@@ -2718,8 +2758,8 @@ function executionModeZh(mode?: DashboardData['tradingRuntime']['executionMode']
 
 function executionVenueJa(venue?: SimulationOrder['executionVenue']) {
   const labels: Record<NonNullable<SimulationOrder['executionVenue']>, string> = {
-    internal_test: '内部テスト実行',
-    live_exchange: 'ライブ取引所発注',
+    internal_test: '完了',
+    live_exchange: '取引所発注完了',
   };
   return venue ? labels[venue] : '-';
 }

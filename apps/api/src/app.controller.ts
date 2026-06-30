@@ -64,7 +64,15 @@ export class AppController {
   @Post('customer/deposits')
   createDeposit(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: { asset: Exclude<Asset, 'JPY'>; amount: string; proofText: string; proofImageName?: string; proofImageDataUrl?: string },
+    @Body()
+    body: {
+      asset: Exclude<Asset, 'JPY'>;
+      amount: string;
+      network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum';
+      proofText: string;
+      proofImageName?: string;
+      proofImageDataUrl?: string;
+    },
   ) {
     return this.safe(() => this.appService.createDeposit(this.customer(authorization), body));
   }

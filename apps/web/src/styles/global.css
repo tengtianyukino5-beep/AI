@@ -63,18 +63,14 @@ button:disabled {
 }
 
 .customer-shell::before {
-  background:
-    linear-gradient(135deg, rgba(3, 9, 18, 0.98), rgba(6, 19, 34, 0.98) 48%, rgba(4, 12, 22, 0.98)),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1440' height='900' viewBox='0 0 1440 900'%3E%3Crect width='1440' height='900' fill='%2307111d'/%3E%3Cg fill='none' stroke='%232b8cff' stroke-opacity='.11'%3E%3Cpath d='M0 78 H1440M0 168 H1440M0 258 H1440M0 348 H1440M0 438 H1440M0 528 H1440M0 618 H1440M0 708 H1440'/%3E%3Cpath d='M168 0 V900M336 0 V900M504 0 V900M672 0 V900M840 0 V900M1008 0 V900M1176 0 V900M1344 0 V900'/%3E%3C/g%3E%3Cpath d='M18 714 C176 554 318 740 476 584 S760 628 916 430 S1202 402 1420 182' fill='none' stroke='%2318d27d' stroke-opacity='.18' stroke-width='4'/%3E%3Cpath d='M46 228 C232 340 398 178 604 266 C814 356 1016 258 1296 334' fill='none' stroke='%232b8cff' stroke-opacity='.18' stroke-width='3'/%3E%3C/svg%3E");
-  background-size: cover;
-  background-position: center top;
+  background: linear-gradient(135deg, #050b14 0%, #081729 44%, #06101d 100%);
 }
 
 .customer-shell::after {
   background:
-    linear-gradient(180deg, rgba(43, 140, 255, 0.08), transparent 40%),
-    linear-gradient(90deg, rgba(24, 210, 125, 0.07), transparent 30%, rgba(43, 140, 255, 0.08));
-  opacity: 0.95;
+    radial-gradient(circle at 12% 8%, rgba(40, 116, 255, 0.16), transparent 30%),
+    linear-gradient(180deg, rgba(27, 96, 166, 0.08), transparent 42%);
+  opacity: 0.72;
 }
 
 .admin-shell {
@@ -262,7 +258,7 @@ button:disabled {
 .customer-shell .metric-card,
 .customer-shell .page-head {
   border-color: rgba(80, 129, 181, 0.28);
-  background: rgba(10, 21, 34, 0.82);
+  background: rgba(8, 19, 31, 0.94);
   color: #e9f4ff;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.38);
 }
@@ -325,7 +321,7 @@ button:disabled {
 .customer-shell .vip-card,
 .customer-shell .opportunity-card {
   border-color: rgba(80, 129, 181, 0.24);
-  background: rgba(9, 24, 40, 0.86);
+  background: rgba(8, 22, 37, 0.96);
   color: #e9f4ff;
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
 }
@@ -336,7 +332,7 @@ button:disabled {
 .customer-shell .opportunity-card small,
 .customer-shell .asset-list span,
 .customer-shell .asset-list small {
-  color: rgba(216, 230, 243, 0.66);
+  color: rgba(226, 238, 248, 0.8);
 }
 
 .customer-shell .ticker-chip strong,
@@ -364,6 +360,46 @@ button:disabled {
   color: rgba(216, 230, 243, 0.42);
 }
 
+.customer-shell .quote-card,
+.customer-shell .conversion-help,
+.customer-shell .proof-preview,
+.customer-shell .deposit-address,
+.customer-shell .balance-hint,
+.customer-shell .pair-board,
+.customer-shell .asset-option {
+  border-color: rgba(80, 129, 181, 0.28);
+  background: rgba(235, 245, 241, 0.96);
+  color: #123036;
+}
+
+.customer-shell .quote-card p,
+.customer-shell .conversion-help p,
+.customer-shell .proof-preview span,
+.customer-shell .deposit-address span,
+.customer-shell .balance-hint span,
+.customer-shell .balance-hint small,
+.customer-shell .pair-board span,
+.customer-shell .asset-option span,
+.customer-shell .asset-option small {
+  color: rgba(18, 48, 54, 0.74);
+}
+
+.customer-shell .quote-card strong,
+.customer-shell .conversion-help strong,
+.customer-shell .proof-preview strong,
+.customer-shell .deposit-address strong,
+.customer-shell .deposit-address code,
+.customer-shell .balance-hint strong,
+.customer-shell .pair-board strong,
+.customer-shell .asset-option strong {
+  color: #123036;
+}
+
+.customer-shell .asset-option.active {
+  border-color: rgba(24, 210, 125, 0.72);
+  background: #e9f8f2;
+}
+
 .customer-shell table {
   color: #d8e6f3;
 }
@@ -380,10 +416,7 @@ button:disabled {
 .customer-shell .scanner-panel,
 .customer-shell .ai-command-panel,
 .customer-shell .market-card {
-  background:
-    linear-gradient(135deg, rgba(8, 24, 42, 0.94), rgba(10, 42, 70, 0.9)),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='760' height='240' viewBox='0 0 760 240'%3E%3Cg fill='none'%3E%3Cpath d='M0 180 C112 64 224 210 354 86 S584 150 760 34' stroke='%2318d27d' stroke-opacity='.28' stroke-width='4'/%3E%3Cpath d='M0 136 H760M0 84 H760' stroke='%232b8cff' stroke-opacity='.13'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: cover;
+  background: linear-gradient(135deg, rgba(8, 24, 42, 0.98), rgba(9, 35, 58, 0.96));
 }
 
 .customer-shell .toggle {
@@ -1366,6 +1399,23 @@ select:focus {
     #fffaf0;
 }
 
+.customer-shell .opportunity-card.missed-card {
+  border-color: rgba(216, 171, 72, 0.46);
+  background:
+    linear-gradient(135deg, rgba(84, 62, 20, 0.58), rgba(24, 27, 34, 0.96)),
+    rgba(22, 24, 30, 0.98);
+  color: #fff4d8;
+}
+
+.customer-shell .opportunity-card.missed-card strong {
+  color: #fff4d8;
+}
+
+.customer-shell .opportunity-card.missed-card p,
+.customer-shell .opportunity-card.missed-card small {
+  color: rgba(255, 244, 216, 0.84);
+}
+
 .admin-shell .admin-row,
 .admin-shell .vip-card {
   border-color: rgba(143, 215, 199, 0.14);
@@ -1645,6 +1695,30 @@ select:focus {
 .vip-card.active {
   border-color: #0f766e;
   background: #e7f4ef;
+}
+
+.customer-shell .vip-card.active {
+  border-color: rgba(24, 210, 125, 0.72);
+  background:
+    linear-gradient(135deg, rgba(24, 210, 125, 0.18), rgba(15, 48, 70, 0.96)),
+    rgba(8, 24, 38, 0.98);
+  color: #f3fbf8;
+  box-shadow:
+    inset 0 0 0 1px rgba(24, 210, 125, 0.12),
+    0 22px 54px rgba(0, 0, 0, 0.32);
+}
+
+.customer-shell .vip-card.active strong,
+.customer-shell .vip-card.active span,
+.customer-shell .vip-card.active small {
+  color: #f3fbf8;
+}
+
+.customer-shell .execution-result,
+.customer-shell .execution-result.missed-detail {
+  border-color: rgba(80, 129, 181, 0.24);
+  background: rgba(8, 22, 37, 0.96);
+  color: #e9f4ff;
 }
 
 .execution-result {

@@ -69,6 +69,7 @@ export interface DepositOrder {
   businessNo: string;
   customerId: string;
   asset: CryptoAsset;
+  network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum';
   amount: string;
   status: 'pending' | 'approved' | 'rejected';
   proofText: string;

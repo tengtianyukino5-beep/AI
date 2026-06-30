@@ -63,6 +63,7 @@ interface DepositOrder {
   businessNo: string;
   customerId: string;
   asset: CryptoAsset;
+  network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum';
   amount: string;
   status: 'pending' | 'approved' | 'rejected';
   proofText: string;
@@ -688,7 +689,7 @@ export class AppService {
     return this.dashboard(customer);
   }
 
-  createDeposit(customer: CustomerRecord, input: { asset: CryptoAsset; amount: string; proofText: string; proofImageName?: string; proofImageDataUrl?: string }) {
+  createDeposit(customer: CustomerRecord, input: { asset: CryptoAsset; amount: string; network?: DepositOrder['network']; proofText: string; proofImageName?: string; proofImageDataUrl?: string }) {
     if (customer.kycStatus !== 'approved') {
       throw new Error('入金申请前需要先完成 KYC。');
     }
@@ -697,6 +698,9 @@ export class AppService {
     }
     if (!input.proofImageName?.trim()) {
       throw new Error('入金凭证图片不能为空。');
+    }
+    if (input.asset === 'USDT' && !['TRC-20', 'ERC-20'].includes(input.network ?? '')) {
+      throw new Error('USDT入金はTRC-20またはERC-20ネットワークを選択してください。');
     }
     const amount = Number(input.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -707,6 +711,7 @@ export class AppService {
       businessNo: this.businessNo('DEP'),
       customerId: customer.id,
       asset: input.asset,
+      network: input.asset === 'USDT' ? input.network : input.asset === 'BTC' ? 'Bitcoin' : 'Ethereum',
       amount: this.formatDecimal(amount),
       status: 'pending',
       proofText: input.proofText || 'transfer proof',
@@ -1310,23 +1315,19 @@ export class AppService {
       (item) => item.customerId === customer.id && item.businessDateTokyo === today && item.status === 'available',
     );
     const remainingDaily = Math.max(0, this.effectiveDailyLimit(customer) - this.todayAttemptCount(customer));
-    if (remainingDaily <= 0) {
-      existing.forEach((item) => {
-        item.status = 'expired';
-      });
-      return;
-    }
-    const needed = Math.min(remainingDaily, customer.autoAiEnabled ? 3 : 2) - existing.length;
+    const visibleSlots = remainingDaily > 0 ? Math.min(remainingDaily, customer.autoAiEnabled ? 3 : 2) : 2;
+    const needed = visibleSlots - existing.length;
     const rankedSignals = this.opportunitySignals(marketTickers);
+    const seedOffset = this.opportunitySeed(customer);
     for (let i = 0; i < needed; i += 1) {
-      const signal = rankedSignals[i % Math.max(1, rankedSignals.length)];
+      const signal = rankedSignals[(seedOffset + i) % Math.max(1, rankedSignals.length)];
       const buy = signal.buy;
       const sell = signal.sell;
       const principal = this.arbitragePrincipalJpy(customer);
       if (principal < 10000) {
         return;
       }
-      const quote = this.buildOpportunityQuote(signal, principal, slowestInterval, i);
+      const quote = this.buildOpportunityQuote(signal, principal, slowestInterval, seedOffset + i);
       if (quote.netProfitJpy <= 0) {
         continue;
       }
@@ -1388,6 +1389,8 @@ export class AppService {
       const principal = Number(opportunity.principalJpy);
       const quote = this.buildOpportunityQuote(signal, principal, slowestInterval, index, tick);
       const confidence = Math.max(78, Math.min(98, Math.round(86 + quote.spreadPercent * 4 + Math.sin(tick / 5) * 4)));
+      opportunity.exchanges = [signal.buy.name, signal.sell.name];
+      opportunity.pair = signal.pair;
       opportunity.baseAsset = this.pairAsset(signal.pair);
       opportunity.spreadPercent = quote.spreadPercent.toFixed(3);
       opportunity.quantity = this.formatDecimal(quote.quantity);
@@ -1618,9 +1621,25 @@ export class AppService {
       return true;
     }
     const successRate = this.clampNumber(customer.successRatePercent ?? defaultSuccessRatePercent, 0, 100);
+    if (successRate >= 100) {
+      return false;
+    }
+    if (successRate <= 0) {
+      return true;
+    }
     const attemptNumber = todayAttempts + 1;
-    const expectedFailures = Math.floor((attemptNumber * (100 - successRate)) / 100);
-    return todayMissed < expectedFailures;
+    const dailyLimit = Math.max(1, this.effectiveDailyLimit(customer));
+    const expectedFailuresByNow = Math.round((attemptNumber * (100 - successRate)) / 100);
+    const expectedFailuresToday = Math.round((dailyLimit * (100 - successRate)) / 100);
+    if (todayMissed < expectedFailuresByNow) {
+      return true;
+    }
+    const remainingAttemptsAfterThis = Math.max(0, dailyLimit - attemptNumber);
+    const requiredRemainingFailures = Math.max(0, expectedFailuresToday - todayMissed);
+    if (requiredRemainingFailures > remainingAttemptsAfterThis) {
+      return true;
+    }
+    return false;
   }
 
   private missOpportunity(customer: CustomerRecord, opportunity: SimulationOpportunity, overrideReason?: string, mode: 'manual' | 'auto' = 'manual') {
@@ -1722,6 +1741,15 @@ export class AppService {
       return 0;
     }
     return Math.max(0, Math.min(available, 5000000));
+  }
+
+  private opportunitySeed(customer: CustomerRecord) {
+    const base =
+      this.todayAttemptCount(customer) +
+      this.todayOrderCount(customer) * 3 +
+      Math.floor(Date.now() / 9000) +
+      customer.id.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+    return Math.abs(base) % marketAssets.length;
   }
 
   private buildOpportunityQuote(
@@ -1852,7 +1880,7 @@ export class AppService {
       messageJa:
         this.executionProvider.venue === 'live_exchange'
           ? '行情APIとライブ発注レイヤーが有効です。'
-          : '行情は公共取引所APIを優先して取得し、発注は内部テスト実行レイヤーで検証しています。',
+          : '行情は公共取引所APIを優先して取得し、発注は内部AI実行レイヤーで検証しています。',
       messageZh:
         this.executionProvider.venue === 'live_exchange'
           ? '真实行情与真实下单层已启用。'
