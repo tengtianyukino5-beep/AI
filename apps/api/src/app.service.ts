@@ -209,6 +209,10 @@ interface ExchangeConfig {
   sourcePriority: 'primary' | 'backup' | 'manual';
   lastStatus: 'live' | 'fallback' | 'disabled' | 'error';
   lastCheckedAt?: string;
+  lastSuccessAt?: string;
+  realApiPairCount?: number;
+  fallbackPairCount?: number;
+  unsupportedPairCount?: number;
   lastError?: string;
 }
 
@@ -528,6 +532,10 @@ export class AppService {
       sourcePriority: apiUrl ? 'primary' : 'backup',
       lastStatus: apiUrl ? 'live' : 'fallback',
       lastCheckedAt: undefined,
+      lastSuccessAt: undefined,
+      realApiPairCount: 0,
+      fallbackPairCount: 0,
+      unsupportedPairCount: 0,
       lastError: undefined,
     };
   }
@@ -1984,20 +1992,47 @@ export class AppService {
     try {
       const enabled = this.enabledExchanges().filter((exchange) => exchange.apiUrl);
       await Promise.allSettled(
-        enabled.flatMap((exchange) =>
-          marketAssets.map((asset) => `${asset}/JPY` as MarketTicker['pair']).map(async (pair) => {
-            const ticker = await this.fetchExternalTicker(exchange, pair);
-            exchange.lastCheckedAt = this.now();
-            if (ticker) {
-              this.marketCache.set(`${exchange.id}:${pair}`, ticker);
-              exchange.lastStatus = 'live';
-              exchange.lastError = undefined;
+        enabled.map(async (exchange) => {
+          const pairs = marketAssets.map((asset) => `${asset}/JPY` as MarketTicker['pair']);
+          const supportedPairs = pairs.filter((pair) => this.marketApiUrl(exchange, pair));
+          exchange.lastCheckedAt = this.now();
+          exchange.realApiPairCount = 0;
+          exchange.fallbackPairCount = 0;
+          exchange.unsupportedPairCount = pairs.length - supportedPairs.length;
+          if (supportedPairs.length === 0) {
+            exchange.lastStatus = 'fallback';
+            exchange.lastError = '该交易所当前没有可用的公开行情交易对，已使用备用行情源。';
+            return;
+          }
+
+          const results = await Promise.allSettled(
+            supportedPairs.map(async (pair) => {
+              const ticker = await this.fetchExternalTicker(exchange, pair);
+              return { pair, ticker };
+            }),
+          );
+          results.forEach((result) => {
+            if (result.status === 'fulfilled' && result.value.ticker) {
+              this.marketCache.set(`${exchange.id}:${result.value.pair}`, result.value.ticker);
+              exchange.realApiPairCount = (exchange.realApiPairCount ?? 0) + 1;
             } else {
-              exchange.lastStatus = 'fallback';
-              exchange.lastError = 'API 未返回可用行情，已使用备用行情源';
+              exchange.fallbackPairCount = (exchange.fallbackPairCount ?? 0) + 1;
             }
-          }),
-        ),
+          });
+          if ((exchange.realApiPairCount ?? 0) > 0) {
+            exchange.lastStatus = 'live';
+            exchange.lastSuccessAt = this.now();
+            const failed = exchange.fallbackPairCount ?? 0;
+            const unsupported = exchange.unsupportedPairCount ?? 0;
+            exchange.lastError =
+              failed > 0 || unsupported > 0
+                ? `真实API成功 ${exchange.realApiPairCount}/${supportedPairs.length} 个交易对；${unsupported} 个币种该交易所未公开支持，使用备用行情。`
+                : undefined;
+          } else {
+            exchange.lastStatus = 'fallback';
+            exchange.lastError = `真实API本次未返回可解析行情，已使用备用行情源。尝试交易对 ${supportedPairs.length} 个。`;
+          }
+        }),
       );
     } finally {
       this.marketRefreshInFlight = false;

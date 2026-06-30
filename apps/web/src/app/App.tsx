@@ -2548,6 +2548,11 @@ function AdminRules(props: {
                 <p>{exchange.category} / {exchange.apiProvider} / {exchange.sourcePriority} / {exchange.lastStatus}</p>
                 <small>{exchange.apiUrl || '备用行情源，等待正式公开 API 接入'}</small>
                 <small>{exchange.lastCheckedAt ? `最近检查：${formatTime(exchange.lastCheckedAt)}` : '最近检查：未执行'}</small>
+                <small>
+                  真实API成功：{exchange.realApiPairCount ?? 0} / 备用：{exchange.fallbackPairCount ?? 0} / 未公开支持：
+                  {exchange.unsupportedPairCount ?? 0}
+                </small>
+                {exchange.lastSuccessAt ? <small className="success-text">最近真实API成功：{formatTime(exchange.lastSuccessAt)}</small> : null}
                 {exchange.lastError ? <small className="warning-text">{exchange.lastError}</small> : null}
               </div>
               <div className="exchange-controls">

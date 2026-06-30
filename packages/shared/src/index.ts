@@ -215,6 +215,10 @@ export interface ExchangeConfig {
   sourcePriority: 'primary' | 'backup' | 'manual';
   lastStatus: 'live' | 'fallback' | 'disabled' | 'error';
   lastCheckedAt?: string;
+  lastSuccessAt?: string;
+  realApiPairCount?: number;
+  fallbackPairCount?: number;
+  unsupportedPairCount?: number;
   lastError?: string;
 }
 

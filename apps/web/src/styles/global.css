@@ -439,6 +439,10 @@ button:disabled {
   color: #d5b86a !important;
 }
 
+.success-text {
+  color: #18d27d !important;
+}
+
 .sidebar {
   position: sticky;
   top: 16px;
