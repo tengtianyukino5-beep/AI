@@ -2,20 +2,16 @@
   "name": "AI Arbitrage Web",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
   "workspaceFolder": "/workspaces/AI",
-  "forwardPorts": [3000, 3001],
+  "forwardPorts": [3000],
   "portsAttributes": {
     "3000": {
-      "label": "Web",
+      "label": "App",
       "onAutoForward": "openBrowser"
-    },
-    "3001": {
-      "label": "API",
-      "onAutoForward": "notify"
     }
   },
   "features": {},
   "postCreateCommand": "corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install",
-  "postStartCommand": "echo 'Run pnpm codespace to start the web and API servers.'",
+  "postStartCommand": "echo 'Run pnpm codespace to start the app.'",
   "customizations": {
     "vscode": {
       "extensions": [

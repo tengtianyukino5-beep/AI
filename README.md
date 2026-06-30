@@ -41,14 +41,10 @@ pnpm install
 Run the API in terminal 1:
 
 ```bash
-pnpm --filter @twodays/api dev
+pnpm codespace
 ```
 
-Run the web app in terminal 2:
-
-```bash
-pnpm --filter @twodays/web dev
-```
+This command builds the web app and starts the API on port 3000, serving both the customer frontend and the admin backend UI from the same Codespaces URL.
 
 Build everything:
 
@@ -66,12 +62,11 @@ pnpm typecheck
 
 | Service | URL |
 | --- | --- |
-| Web | http://127.0.0.1:3000 |
-| API | http://127.0.0.1:3001/api/v1 |
-| API Health | http://127.0.0.1:3001/api/v1/health |
-| Swagger | http://127.0.0.1:3001/api-docs |
+| App | http://127.0.0.1:3000 |
+| API Health | http://127.0.0.1:3000/api/v1/health |
+| Swagger | http://127.0.0.1:3000/api-docs |
 
-In GitHub Codespaces, open the forwarded `3000` port for the web app and `3001` for the API.
+In GitHub Codespaces, open the forwarded `3000` port once. Use the root path for the customer frontend and `/admin` for the management backend.
 
 ## Demo Accounts
 

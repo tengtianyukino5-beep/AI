@@ -1,9 +1,24 @@
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const isWindows = process.platform === 'win32';
 const pnpm = isWindows ? 'pnpm.cmd' : 'pnpm';
 
-const processes = [];
+function run(name, args, env = {}) {
+  const result = spawnSync(pnpm, args, {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      ...env,
+    },
+    stdio: 'inherit',
+    shell: false,
+  });
+
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+  console.log(`[${name}] done`);
+}
 
 function start(name, args, env = {}) {
   const child = spawn(pnpm, args, {
@@ -29,23 +44,21 @@ function start(name, args, env = {}) {
     }
   });
 
-  processes.push(child);
   return child;
 }
 
 console.log('Starting AI Arbitrage Codespaces server...');
 console.log('Customer frontend: http://localhost:3000/');
 console.log('Admin backend UI:  http://localhost:3000/admin');
-console.log('API health:        http://localhost:3001/api/v1/health');
+console.log('API health:        http://localhost:3000/api/v1/health');
 console.log('');
 
-start('api:3001', ['--filter', '@twodays/api', 'dev'], { API_PORT: '3001' });
-start('web:3000', ['--filter', '@twodays/web', 'exec', 'vite', '--host', '0.0.0.0', '--port', '3000', '--strictPort']);
+run('web:build', ['--filter', '@twodays/web', 'build']);
+
+const api = start('api:3000', ['--filter', '@twodays/api', 'dev'], { API_PORT: '3000' });
 
 function shutdown() {
-  for (const child of processes) {
-    child.kill('SIGTERM');
-  }
+  api.kill('SIGTERM');
 }
 
 process.on('SIGINT', shutdown);
