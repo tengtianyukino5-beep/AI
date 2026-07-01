@@ -48,19 +48,20 @@ function start(name, args, env = {}) {
 }
 
 console.log('Starting AI Arbitrage Codespaces server...');
-console.log('Customer frontend: http://localhost:3000/');
-console.log('Admin backend UI:  http://localhost:3000/admin');
-console.log('API health:        http://localhost:3000/api/v1/health');
+console.log('Single-port mode for Codespaces.');
+console.log('Customer frontend: http://localhost:3001/');
+console.log('Admin backend UI:  http://localhost:3001/admin');
+console.log('API health:        http://localhost:3001/api/v1/health');
 console.log('');
 
 run('shared:build', ['--filter', '@twodays/shared', 'build']);
+run('web:build', ['--filter', '@twodays/web', 'build']);
+run('api:build', ['--filter', '@twodays/api', 'build']);
 
 const api = start('api:3001', ['--filter', '@twodays/api', 'dev'], { API_PORT: '3001' });
-const web = start('web:3000', ['--filter', '@twodays/web', 'dev']);
 
 function shutdown() {
   api.kill('SIGTERM');
-  web.kill('SIGTERM');
 }
 
 process.on('SIGINT', shutdown);
