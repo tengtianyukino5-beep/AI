@@ -44,7 +44,7 @@ Run the API in terminal 1:
 pnpm codespace
 ```
 
-This command builds the web app and starts the API on port 3000, serving both the customer frontend and the admin backend UI from the same Codespaces URL.
+This command builds the shared package, builds the web app, builds the API, and then starts one single server on port 3000. The same Codespaces URL serves the customer frontend, the management backend UI, and the API.
 
 Build everything:
 
