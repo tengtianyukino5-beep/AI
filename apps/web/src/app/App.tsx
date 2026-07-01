@@ -2370,6 +2370,8 @@ function AdminRules(props: {
   const [exchangeDrafts, setExchangeDrafts] = useState<Record<string, string>>(() =>
     Object.fromEntries(props.state.exchanges.map((exchange) => [exchange.id, String(exchange.intervalSeconds)])),
   );
+  const [editingVipLevel, setEditingVipLevel] = useState<VipLevel | null>(null);
+  const [editingExchangeId, setEditingExchangeId] = useState<string | null>(null);
   const [vipDrafts, setVipDrafts] = useState<Record<VipLevel, Partial<Record<VipDraftKey, string>>>>(() =>
     Object.fromEntries(
       props.state.vipRules.map((rule) => [
@@ -2386,10 +2388,12 @@ function AdminRules(props: {
   );
 
   useEffect(() => {
+    if (editingExchangeId) return;
     setExchangeDrafts(Object.fromEntries(props.state.exchanges.map((exchange) => [exchange.id, String(exchange.intervalSeconds)])));
-  }, [props.state.exchanges]);
+  }, [props.state.exchanges, editingExchangeId]);
 
   useEffect(() => {
+    if (editingVipLevel) return;
     setVipDrafts(
       Object.fromEntries(
         props.state.vipRules.map((rule) => [
@@ -2404,7 +2408,7 @@ function AdminRules(props: {
         ]),
       ) as Record<VipLevel, Partial<Record<VipDraftKey, string>>>,
     );
-  }, [props.state.vipRules]);
+  }, [props.state.vipRules, editingVipLevel]);
 
   async function updateExchange(exchange: ExchangeConfig, intervalSeconds: number, enabled = exchange.enabled) {
     const result = await props.run(
@@ -2416,10 +2420,14 @@ function AdminRules(props: {
         ),
       '交易所检测秒数已更新。',
     );
-    if (result) await props.refresh();
+    if (result) {
+      setEditingExchangeId(null);
+      await props.refresh();
+    }
   }
 
   function setVipDraft(level: VipLevel, key: VipDraftKey, value: string) {
+    setEditingVipLevel(level);
     setVipDrafts((drafts) => ({ ...drafts, [level]: { ...(drafts[level] ?? {}), [key]: value } }));
   }
 
@@ -2442,7 +2450,10 @@ function AdminRules(props: {
         ),
       'VIP 规则已保存，并会同步到客户前台。',
     );
-    if (result) await props.refresh();
+    if (result) {
+      setEditingVipLevel(null);
+      await props.refresh();
+    }
   }
 
   async function refreshMarkets() {
@@ -2476,6 +2487,7 @@ function AdminRules(props: {
                     type="number"
                     value={vipDrafts[rule.level]?.dailyLimit ?? String(rule.dailyLimit)}
                     onChange={(event) => setVipDraft(rule.level, 'dailyLimit', event.target.value)}
+                    onFocus={() => setEditingVipLevel(rule.level)}
                   />
                 </label>
                 <label>
@@ -2485,6 +2497,7 @@ function AdminRules(props: {
                     type="number"
                     value={vipDrafts[rule.level]?.upgradeBalanceJpy ?? String(rule.upgradeBalanceJpy)}
                     onChange={(event) => setVipDraft(rule.level, 'upgradeBalanceJpy', event.target.value)}
+                    onFocus={() => setEditingVipLevel(rule.level)}
                   />
                 </label>
                 <label>
@@ -2494,16 +2507,18 @@ function AdminRules(props: {
                     type="number"
                     value={vipDrafts[rule.level]?.minBalanceJpy ?? String(rule.minBalanceJpy)}
                     onChange={(event) => setVipDraft(rule.level, 'minBalanceJpy', event.target.value)}
+                    onFocus={() => setEditingVipLevel(rule.level)}
                   />
                 </label>
                 <label>
-                  高收益概率%
+                  成功率/高收益概率%
                   <input
                     min="0"
                     max="100"
                     type="number"
                     value={vipDrafts[rule.level]?.highProfitProbability ?? String(rule.highProfitProbability)}
                     onChange={(event) => setVipDraft(rule.level, 'highProfitProbability', event.target.value)}
+                    onFocus={() => setEditingVipLevel(rule.level)}
                   />
                 </label>
                 <label>
@@ -2511,6 +2526,7 @@ function AdminRules(props: {
                   <input
                     value={vipDrafts[rule.level]?.aiPower ?? rule.aiPower}
                     onChange={(event) => setVipDraft(rule.level, 'aiPower', event.target.value)}
+                    onFocus={() => setEditingVipLevel(rule.level)}
                     placeholder="例：2x"
                   />
                 </label>
@@ -2564,7 +2580,11 @@ function AdminRules(props: {
                     step="0.001"
                     type="number"
                     value={exchangeDrafts[exchange.id] ?? String(exchange.intervalSeconds)}
-                    onChange={(event) => setExchangeDrafts((drafts) => ({ ...drafts, [exchange.id]: event.target.value }))}
+                    onChange={(event) => {
+                      setEditingExchangeId(exchange.id);
+                      setExchangeDrafts((drafts) => ({ ...drafts, [exchange.id]: event.target.value }));
+                    }}
+                    onFocus={() => setEditingExchangeId(exchange.id)}
                   />
                 </label>
                 <button

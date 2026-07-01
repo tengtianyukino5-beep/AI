@@ -1394,7 +1394,7 @@ export class AppService {
     const signals = this.opportunitySignals(marketTickers);
     active.forEach((opportunity, index) => {
       const tick = Date.now() / 1000 + index * 17;
-      const signal = signals.find((item) => item.pair === opportunity.pair) ?? signals[index % Math.max(1, signals.length)];
+      const signal = signals[(this.opportunitySeed(customer) + index + Math.floor(Date.now() / 7000)) % Math.max(1, signals.length)];
       const principal = Number(opportunity.principalJpy);
       const quote = this.buildOpportunityQuote(signal, principal, slowestInterval, index, tick);
       const confidence = Math.max(78, Math.min(98, Math.round(86 + quote.spreadPercent * 4 + Math.sin(tick / 5) * 4)));
@@ -1629,7 +1629,8 @@ export class AppService {
     if (Number(opportunity.estimatedProfitJpy) <= 0) {
       return true;
     }
-    const successRate = this.clampNumber(customer.successRatePercent ?? defaultSuccessRatePercent, 0, 100);
+    const vipSuccessRate = this.vipRule(customer.vipLevel).highProfitProbability;
+    const successRate = this.clampNumber(Number.isFinite(vipSuccessRate) ? vipSuccessRate : (customer.successRatePercent ?? defaultSuccessRatePercent), 0, 100);
     if (successRate >= 100) {
       return false;
     }
