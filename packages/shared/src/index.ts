@@ -82,6 +82,14 @@ export interface DepositOrder {
   proofText: string;
   proofImageName?: string;
   proofImageDataUrl?: string;
+  unitPriceJpy?: string;
+  valuationJpy?: string;
+  priceSource?: 'real_api' | 'fallback' | 'manual' | 'mixed';
+  priceSourceLabelJa?: string;
+  priceSourceDetailJa?: string;
+  priceUpdatedAt?: string;
+  marketExchange?: string;
+  marketPair?: string;
   createdAt: string;
 }
 
@@ -109,6 +117,14 @@ export interface WithdrawalOrder {
   network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum' | 'Bank';
   destinationText: string;
   note?: string;
+  unitPriceJpy?: string;
+  valuationJpy?: string;
+  priceSource?: 'real_api' | 'fallback' | 'manual' | 'mixed';
+  priceSourceLabelJa?: string;
+  priceSourceDetailJa?: string;
+  priceUpdatedAt?: string;
+  marketExchange?: string;
+  marketPair?: string;
   createdAt: string;
   completedAt?: string;
 }
@@ -126,6 +142,14 @@ export interface ConversionQuote {
   rateSource: 'primary' | 'backup' | 'manual';
   rateUpdatedAt: string;
   expiresAt: string;
+  priceSource?: 'real_api' | 'fallback' | 'manual' | 'mixed';
+  priceSourceLabelJa?: string;
+  priceSourceDetailJa?: string;
+  marketExchange?: string;
+  marketPair?: string;
+  marketBidJpy?: string;
+  marketAskJpy?: string;
+  marketLastJpy?: string;
   snapshot: {
     cryptoToUsdt: string;
     usdtToUsd: string;

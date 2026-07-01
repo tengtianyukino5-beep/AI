@@ -76,6 +76,14 @@ interface DepositOrder {
   proofText: string;
   proofImageName?: string;
   proofImageDataUrl?: string;
+  unitPriceJpy?: string;
+  valuationJpy?: string;
+  priceSource?: 'real_api' | 'fallback' | 'manual' | 'mixed';
+  priceSourceLabelJa?: string;
+  priceSourceDetailJa?: string;
+  priceUpdatedAt?: string;
+  marketExchange?: string;
+  marketPair?: string;
   createdAt: string;
 }
 
@@ -103,6 +111,14 @@ interface WithdrawalOrder {
   network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum' | 'Bank';
   destinationText: string;
   note?: string;
+  unitPriceJpy?: string;
+  valuationJpy?: string;
+  priceSource?: 'real_api' | 'fallback' | 'manual' | 'mixed';
+  priceSourceLabelJa?: string;
+  priceSourceDetailJa?: string;
+  priceUpdatedAt?: string;
+  marketExchange?: string;
+  marketPair?: string;
   createdAt: string;
   completedAt?: string;
 }
@@ -120,6 +136,14 @@ interface ConversionQuote {
   rateSource: 'primary' | 'backup' | 'manual';
   rateUpdatedAt: string;
   expiresAt: string;
+  priceSource?: 'real_api' | 'fallback' | 'manual' | 'mixed';
+  priceSourceLabelJa?: string;
+  priceSourceDetailJa?: string;
+  marketExchange?: string;
+  marketPair?: string;
+  marketBidJpy?: string;
+  marketAskJpy?: string;
+  marketLastJpy?: string;
   snapshot: {
     cryptoToUsdt: string;
     usdtToUsd: string;
@@ -337,6 +361,13 @@ type MarketCacheEntry = {
   source: MarketTicker['source'];
 };
 
+type FxCacheEntry = {
+  usdToJpy: number;
+  fetchedAt: number;
+  source: 'real_api' | 'fallback';
+  provider: string;
+};
+
 type ExecutionMode = 'manual' | 'auto';
 
 interface ExecutionRequest {
@@ -409,7 +440,7 @@ class TestExecutionProvider implements ExecutionProvider {
       totalCostJpy: opportunity.totalCostJpy,
       netProfitJpy: String(Math.floor(netProfit)),
       disclosureJa:
-        `内部テスト実行レイヤーで約定検証を行いました。行情は${sourceLabel}を使用し、外部取引所への実注文は送信していません。` +
+        `内部テスト実行レイヤーで約定検証を行いました。相場データは${sourceLabel}を使用し、外部取引所への実注文は送信していません。` +
         '検証済みの純利益のみJPY残高へ反映しています。',
     };
   }
@@ -428,10 +459,11 @@ class LiveExchangeExecutionProvider implements ExecutionProvider {
 }
 
 const disclosureJa =
-  'この環境は内部テスト版です。行情は公共取引所APIを優先して取得し、注文処理は内部テスト実行レイヤーで検証します。外部取引所への実注文は送信していません。';
+  'この環境は内部テスト版です。相場データは公開取引所APIを優先して取得し、注文処理は内部テスト実行レイヤーで検証します。外部取引所への実注文は送信していません。';
 const balanceAssets: Asset[] = ['JPY', 'USDT', 'BTC', 'ETH'];
 const cryptoAssets: CryptoAsset[] = ['USDT', 'BTC', 'ETH'];
 const marketAssets: MarketAsset[] = ['BTC', 'ETH', 'XRP', 'SOL', 'DOT', 'DOGE', 'LTC', 'MONA', 'BCC', 'XLM'];
+const marketFeedAssets: MarketAsset[] = ['USDT', ...marketAssets];
 const arbitrageFeeRate = 0.0015;
 const arbitrageSlippageRate = 0.001;
 const arbitrageRiskBufferRate = 0.0005;
@@ -498,6 +530,7 @@ export class AppService {
   private readonly auditLogs: AuditLog[] = [];
   private readonly inviteRewards: InviteReward[] = [];
   private readonly marketCache = new Map<string, MarketCacheEntry>();
+  private usdJpyCache?: FxCacheEntry;
   private readonly executionProvider: ExecutionProvider = new TestExecutionProvider();
   private readonly autoAiRuns = new Map<
     string,
@@ -624,7 +657,7 @@ export class AppService {
     };
   }
 
-  register(input: { email: string; password: string; code: string; inviteCode?: string }) {
+  async register(input: { email: string; password: string; code: string; inviteCode?: string }) {
     const email = input.email.toLowerCase().trim();
     if (!email || !input.password) {
       throw new Error('メールアドレスとパスワードを入力してください。');
@@ -658,7 +691,7 @@ export class AppService {
     return this.customerSession(customer);
   }
 
-  customerLogin(email: string, password: string) {
+  async customerLogin(email: string, password: string) {
     const customer = [...this.customers.values()].find((item) => item.email === email.toLowerCase().trim());
     if (!customer || customer.password !== password) {
       throw new Error('メールアドレスまたはパスワードが正しくありません。');
@@ -708,8 +741,8 @@ export class AppService {
     return record.actorId;
   }
 
-  dashboard(customer: CustomerRecord) {
-    void this.refreshExternalMarkets();
+  async dashboard(customer: CustomerRecord) {
+    await this.refreshExternalMarkets();
     const marketTickers = this.marketTickers();
     this.refreshOpportunityMarket(customer, marketTickers);
     this.ensureDailyOpportunities(customer, marketTickers);
@@ -727,8 +760,7 @@ export class AppService {
       ledger: this.ledger.filter((item) => item.customerId === customer.id).slice(0, 20),
       opportunities: this.opportunities.filter((item) => item.customerId === customer.id && item.status === 'available'),
       missedOpportunities: this.opportunities
-        .filter((item) => item.customerId === customer.id && item.status === 'missed')
-        .slice(0, 10),
+        .filter((item) => item.customerId === customer.id && item.status === 'missed'),
       orders: this.orders.filter((item) => item.customerId === customer.id),
       vipRules: this.vipRules,
       marketTickers: displayMarketTickers,
@@ -751,7 +783,7 @@ export class AppService {
     return this.publicCustomer(customer);
   }
 
-  toggleAutoAi(customer: CustomerRecord, enabled: boolean) {
+  async toggleAutoAi(customer: CustomerRecord, enabled: boolean) {
     if (customer.kycStatus !== 'approved') {
       throw new Error('本人確認が完了していないため、自動AI裁定を利用できません。');
     }
@@ -765,7 +797,7 @@ export class AppService {
     return this.dashboard(customer);
   }
 
-  createDeposit(customer: CustomerRecord, input: { asset: CryptoAsset; amount: string; network?: DepositOrder['network']; proofText: string; proofImageName?: string; proofImageDataUrl?: string }) {
+  async createDeposit(customer: CustomerRecord, input: { asset: CryptoAsset; amount: string; network?: DepositOrder['network']; proofText: string; proofImageName?: string; proofImageDataUrl?: string }) {
     if (customer.kycStatus !== 'approved') {
       throw new Error('入金申请前需要先完成 KYC。');
     }
@@ -782,6 +814,7 @@ export class AppService {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error('请输入有效的入金数量。');
     }
+    const pricing = await this.assetPricingSnapshot(input.asset, amount, true);
     const depositNetwork = input.asset === 'USDT' ? input.network : input.asset === 'BTC' ? 'Bitcoin' : 'Ethereum';
     const address = this.depositAddressFor(input.asset, depositNetwork);
     const deposit: DepositOrder = {
@@ -797,6 +830,14 @@ export class AppService {
       proofText: input.proofText || 'transfer proof',
       proofImageName: input.proofImageName,
       proofImageDataUrl: this.compactDataUrl(input.proofImageDataUrl),
+      unitPriceJpy: String(pricing.unitPriceJpy),
+      valuationJpy: String(pricing.valuationJpy),
+      priceSource: pricing.priceSource,
+      priceSourceLabelJa: pricing.priceSourceLabelJa,
+      priceSourceDetailJa: pricing.priceSourceDetailJa,
+      priceUpdatedAt: pricing.priceUpdatedAt,
+      marketExchange: pricing.marketExchange,
+      marketPair: pricing.marketPair,
       createdAt: this.now(),
     };
     this.deposits.unshift(deposit);
@@ -804,7 +845,7 @@ export class AppService {
     return deposit;
   }
 
-  createWithdrawal(
+  async createWithdrawal(
     customer: CustomerRecord,
     input: {
       asset: Asset;
@@ -829,6 +870,7 @@ export class AppService {
     if (Number(balance.available) < amount) {
       throw new Error('利用可能残高が不足しています。');
     }
+    const pricing = input.asset === 'JPY' ? this.jpyPricingSnapshot(amount) : await this.assetPricingSnapshot(input.asset, amount, true);
     const network = input.asset === 'JPY' ? 'Bank' : input.network ?? this.defaultWithdrawalNetwork(input.asset);
     const destinationText = input.destinationText.trim();
     this.saveWithdrawalDestination(customer, input.asset, network, destinationText);
@@ -843,6 +885,14 @@ export class AppService {
       network,
       destinationText,
       note: input.note,
+      unitPriceJpy: String(pricing.unitPriceJpy),
+      valuationJpy: String(pricing.valuationJpy),
+      priceSource: pricing.priceSource,
+      priceSourceLabelJa: pricing.priceSourceLabelJa,
+      priceSourceDetailJa: pricing.priceSourceDetailJa,
+      priceUpdatedAt: pricing.priceUpdatedAt,
+      marketExchange: pricing.marketExchange,
+      marketPair: pricing.marketPair,
       createdAt: this.now(),
     };
     this.withdrawals.unshift(withdrawal);
@@ -865,7 +915,7 @@ export class AppService {
     return withdrawal;
   }
 
-  quoteConversion(customer: CustomerRecord, input: { fromAsset: CryptoAsset; amount: string }) {
+  async quoteConversion(customer: CustomerRecord, input: { fromAsset: CryptoAsset; amount: string }) {
     const amount = Number(input.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error('変換数量を入力してください。');
@@ -874,9 +924,10 @@ export class AppService {
     if (Number(balance.available) < amount) {
       throw new Error('残高が不足しています。');
     }
-    const unitPriceJpy = this.assetUnitPriceJpy(input.fromAsset);
-    const market = this.marketRate(input.fromAsset);
-    const estimatedJpy = Math.floor(amount * unitPriceJpy);
+    const pricing = await this.assetPricingSnapshot(input.fromAsset, amount, true);
+    const market = pricing.market;
+    const unitPriceJpy = pricing.unitPriceJpy;
+    const estimatedJpy = pricing.valuationJpy;
     const feeJpy = 0;
     const receivedJpy = estimatedJpy - feeJpy;
     const quote: ConversionQuote = {
@@ -892,6 +943,14 @@ export class AppService {
       rateSource: market.source,
       rateUpdatedAt: this.now(),
       expiresAt: new Date(Date.now() + 120000).toISOString(),
+      priceSource: pricing.priceSource,
+      priceSourceLabelJa: pricing.priceSourceLabelJa,
+      priceSourceDetailJa: pricing.priceSourceDetailJa,
+      marketExchange: pricing.marketExchange,
+      marketPair: pricing.marketPair,
+      marketBidJpy: pricing.marketBidJpy,
+      marketAskJpy: pricing.marketAskJpy,
+      marketLastJpy: pricing.marketLastJpy,
       snapshot: {
         cryptoToUsdt: String(market.cryptoToUsdt),
         usdtToUsd: String(market.usdtToUsd),
@@ -902,7 +961,7 @@ export class AppService {
     return quote;
   }
 
-  executeConversion(customer: CustomerRecord, quoteId: string) {
+  async executeConversion(customer: CustomerRecord, quoteId: string) {
     const quote = this.quotes.get(quoteId);
     if (!quote) {
       throw new Error('見積もりが見つかりません。');
@@ -923,7 +982,7 @@ export class AppService {
     return this.dashboard(customer);
   }
 
-  upgradeVip(customer: CustomerRecord) {
+  async upgradeVip(customer: CustomerRecord) {
     if (customer.kycStatus !== 'approved') {
       throw new Error('VIPアップグレードには本人確認が必要です。');
     }
@@ -945,7 +1004,7 @@ export class AppService {
     return this.dashboard(customer);
   }
 
-  createSimulationOrder(customer: CustomerRecord, opportunityId: string) {
+  async createSimulationOrder(customer: CustomerRecord, opportunityId: string) {
     if (customer.kycStatus !== 'approved') {
       throw new Error('本人確認が完了していないため、AI裁定を利用できません。');
     }
@@ -968,7 +1027,7 @@ export class AppService {
       return {
         order: failedOrder,
         missedOpportunity: opportunity,
-        dashboard: this.dashboard(customer),
+        dashboard: await this.dashboard(customer),
       };
     }
     const order = this.settleOpportunity(customer, opportunity, 'manual');
@@ -984,7 +1043,7 @@ export class AppService {
     return {
       order,
       missedOpportunity: null,
-      dashboard: this.dashboard(customer),
+      dashboard: await this.dashboard(customer),
     };
   }
 
@@ -1357,11 +1416,11 @@ export class AppService {
     return customer;
   }
 
-  private customerSession(customer: CustomerRecord) {
+  private async customerSession(customer: CustomerRecord) {
     return {
       token: this.token(customer.id, 'customer'),
       customer: this.publicCustomer(customer),
-      dashboard: this.dashboard(customer),
+      dashboard: await this.dashboard(customer),
     };
   }
 
@@ -2027,7 +2086,7 @@ export class AppService {
   private marketTickers(): MarketTicker[] {
     const tickers: MarketTicker[] = [];
     this.exchanges.forEach((exchange, exchangeIndex) => {
-      marketAssets.map((asset) => `${asset}/JPY` as MarketTicker['pair']).forEach((pair, pairIndex) => {
+      marketFeedAssets.map((asset) => `${asset}/JPY` as MarketTicker['pair']).forEach((pair, pairIndex) => {
         tickers.push(this.marketTicker(exchange, pair, exchangeIndex, pairIndex));
       });
     });
@@ -2065,8 +2124,8 @@ export class AppService {
       lastMarketRefreshAt: latestFetchedAt ? new Date(latestFetchedAt).toISOString() : undefined,
       messageJa:
         this.executionProvider.venue === 'live_exchange'
-          ? '行情APIとライブ発注レイヤーが有効です。'
-          : '行情は公共取引所APIを優先して取得し、発注は内部AI実行レイヤーで検証しています。',
+          ? '相場APIとライブ発注レイヤーが有効です。'
+          : '相場データは公開取引所APIを優先して取得し、発注は内部AI実行レイヤーで検証しています。',
       messageZh:
         this.executionProvider.venue === 'live_exchange'
           ? '真实行情与真实下单层已启用。'
@@ -2154,6 +2213,113 @@ export class AppService {
     return this.normalizeMarketPrice(market.cryptoToUsdt * market.usdtToUsd * market.usdToJpy);
   }
 
+  private async assetPricingSnapshot(asset: Asset, amount: number, forceRefresh = false) {
+    if (asset === 'JPY') {
+      return this.jpyPricingSnapshot(amount);
+    }
+    if (forceRefresh) {
+      await this.refreshExternalMarkets(true);
+    }
+    const fallbackMarket = this.marketRate(asset);
+    const market = {
+      ...fallbackMarket,
+      usdToJpy: this.usdJpyCache?.usdToJpy ?? fallbackMarket.usdToJpy,
+    };
+    const fallbackPrice = this.normalizeMarketPrice(market.cryptoToUsdt * market.usdtToUsd * market.usdToJpy);
+    const pair = `${asset}/JPY` as MarketTicker['pair'];
+    const realRows = this.enabledExchanges()
+      .map((exchange) => {
+        const entry = this.marketCache.get(`${exchange.id}:${pair}`);
+        return entry?.source === 'real_api'
+          ? {
+              exchangeName: exchange.name,
+              entry,
+              midpoint: this.marketMidpoint(entry),
+            }
+          : null;
+      })
+      .filter((item): item is { exchangeName: string; entry: MarketCacheEntry; midpoint: number } => Boolean(item))
+      .filter((item) => Number.isFinite(item.midpoint) && item.midpoint > 0)
+      .sort((a, b) => a.midpoint - b.midpoint);
+
+    if (realRows.length > 0) {
+      const median = realRows[Math.floor(realRows.length / 2)];
+      const unitPriceJpy = this.normalizeMarketPrice(median.midpoint);
+      const cryptoToUsdt = unitPriceJpy / Math.max(1, market.usdToJpy);
+      const label =
+        asset === 'USDT' && this.usdJpyCache?.source === 'real_api'
+          ? `${this.usdJpyCache.provider} 公開FX API`
+          : `${median.exchangeName} 公開API`;
+      const detail =
+        asset === 'USDT'
+          ? 'USDT/USD=1 を基準に、公開FX APIのUSD/JPYを使用してJPY評価額を算出しています。'
+          : `${pair} のbid/ask中間値を優先し、複数取引所が取得できる場合は中位価格を採用しています。`;
+      return {
+        unitPriceJpy,
+        valuationJpy: Math.floor(amount * unitPriceJpy),
+        market: {
+          ...market,
+          cryptoToUsdt: Number(cryptoToUsdt.toFixed(asset === 'USDT' ? 4 : 2)),
+          source: 'primary' as const,
+        },
+        priceSource: 'real_api' as const,
+        priceSourceLabelJa: label,
+        priceSourceDetailJa: detail,
+        priceUpdatedAt: new Date(median.entry.fetchedAt).toISOString(),
+        marketExchange: median.exchangeName,
+        marketPair: pair,
+        marketBidJpy: this.formatMarketPrice(median.entry.bidJpy),
+        marketAskJpy: this.formatMarketPrice(median.entry.askJpy),
+        marketLastJpy: this.formatMarketPrice(median.entry.lastJpy),
+      };
+    }
+
+    const unitPriceJpy = this.normalizeMarketPrice(fallbackPrice);
+    return {
+      unitPriceJpy,
+      valuationJpy: Math.floor(amount * unitPriceJpy),
+      market,
+      priceSource: 'fallback' as const,
+      priceSourceLabelJa: 'バックアップ価格',
+      priceSourceDetailJa: '公開APIが時間内に取得できなかったため、管理側のバックアップ価格で評価しています。',
+      priceUpdatedAt: this.now(),
+      marketExchange: 'バックアップ価格',
+      marketPair: pair,
+      marketBidJpy: this.formatMarketPrice(unitPriceJpy),
+      marketAskJpy: this.formatMarketPrice(unitPriceJpy),
+      marketLastJpy: this.formatMarketPrice(unitPriceJpy),
+    };
+  }
+
+  private jpyPricingSnapshot(amount: number) {
+    return {
+      unitPriceJpy: 1,
+      valuationJpy: Math.floor(amount),
+      market: {
+        cryptoToUsdt: 1,
+        usdtToUsd: 1,
+        usdToJpy: 1,
+        source: 'manual' as const,
+      },
+      priceSource: 'manual' as const,
+      priceSourceLabelJa: 'JPY額面',
+      priceSourceDetailJa: 'JPYは換算せず、入力金額をそのまま評価しています。',
+      priceUpdatedAt: this.now(),
+      marketExchange: 'JPY',
+      marketPair: 'JPY/JPY',
+      marketBidJpy: '1',
+      marketAskJpy: '1',
+      marketLastJpy: '1',
+    };
+  }
+
+  private marketMidpoint(entry: MarketCacheEntry) {
+    if (entry.bidJpy > 0 && entry.askJpy > 0) {
+      return (entry.bidJpy + entry.askJpy) / 2;
+    }
+    return entry.lastJpy;
+  }
+
   private async refreshExternalMarkets(force = false) {
     if (this.marketRefreshInFlight || (!force && Date.now() - this.lastMarketRefreshStartedAt < 4500)) {
       return;
@@ -2161,10 +2327,12 @@ export class AppService {
     this.marketRefreshInFlight = true;
     this.lastMarketRefreshStartedAt = Date.now();
     try {
+      await this.refreshUsdJpyRate(force);
+      this.refreshUsdtJpySyntheticTickers();
       const enabled = this.enabledExchanges().filter((exchange) => exchange.apiUrl);
       await Promise.allSettled(
         enabled.map(async (exchange) => {
-          const pairs = marketAssets.map((asset) => `${asset}/JPY` as MarketTicker['pair']);
+          const pairs = marketFeedAssets.map((asset) => `${asset}/JPY` as MarketTicker['pair']);
           const supportedPairs = pairs.filter((pair) => this.marketApiUrl(exchange, pair));
           exchange.lastCheckedAt = this.now();
           exchange.realApiPairCount = 0;
@@ -2208,6 +2376,56 @@ export class AppService {
     } finally {
       this.marketRefreshInFlight = false;
     }
+  }
+
+  private async refreshUsdJpyRate(force = false) {
+    if (!force && this.usdJpyCache && Date.now() - this.usdJpyCache.fetchedAt < 60000) {
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1800);
+    try {
+      const response = await fetch('https://open.er-api.com/v6/latest/USD', { signal: controller.signal });
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as { rates?: Record<string, unknown> };
+      const rate = typeof payload.rates?.JPY === 'number' ? payload.rates.JPY : Number(payload.rates?.JPY);
+      if (Number.isFinite(rate) && rate > 0) {
+        this.usdJpyCache = {
+          usdToJpy: rate,
+          fetchedAt: Date.now(),
+          source: 'real_api',
+          provider: 'open.er-api.com',
+        };
+      }
+    } catch {
+      if (!this.usdJpyCache) {
+        const fallback = this.marketRate('USDT').usdToJpy;
+        this.usdJpyCache = {
+          usdToJpy: fallback,
+          fetchedAt: Date.now(),
+          source: 'fallback',
+          provider: 'バックアップFX',
+        };
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private refreshUsdtJpySyntheticTickers() {
+    const usdToJpy = this.usdJpyCache?.usdToJpy ?? this.marketRate('USDT').usdToJpy;
+    const source = this.usdJpyCache?.source ?? 'fallback';
+    this.enabledExchanges().forEach((exchange, index) => {
+      this.marketCache.set(`${exchange.id}:USDT/JPY`, {
+        bidJpy: usdToJpy * (0.999 - index * 0.00001),
+        askJpy: usdToJpy * (1.001 + index * 0.00001),
+        lastJpy: usdToJpy,
+        fetchedAt: this.usdJpyCache?.fetchedAt ?? Date.now(),
+        source,
+      });
+    });
   }
 
   private async fetchExternalTicker(exchange: ExchangeConfig, pair: MarketTicker['pair']): Promise<MarketCacheEntry | null> {
@@ -2268,10 +2486,19 @@ export class AppService {
     payload: unknown,
   ): MarketCacheEntry | null {
     const data = payload as Record<string, unknown>;
-    const usdToJpy = this.marketRate('USDT').usdToJpy;
+    const usdToJpy = this.usdJpyCache?.usdToJpy ?? this.marketRate('USDT').usdToJpy;
     let bid: number | undefined;
     let ask: number | undefined;
     let last: number | undefined;
+    if (pair === 'USDT/JPY') {
+      return {
+        bidJpy: usdToJpy * 0.999,
+        askJpy: usdToJpy * 1.001,
+        lastJpy: usdToJpy,
+        fetchedAt: Date.now(),
+        source: this.usdJpyCache?.source ?? (provider === 'fallback' ? 'fallback' : 'real_api'),
+      };
+    }
     if (provider === 'bitflyer') {
       bid = this.numberField(data, 'best_bid');
       ask = this.numberField(data, 'best_ask');
@@ -2385,7 +2612,7 @@ export class AppService {
       cryptoToUsdt: Number((baseUsdt[asset] * wave).toFixed(asset === 'USDT' ? 4 : 2)),
       usdtToUsd: 1,
       usdToJpy: Number(usdToJpy.toFixed(2)),
-      source: 'primary' as const,
+      source: 'backup' as const,
     };
   }
 

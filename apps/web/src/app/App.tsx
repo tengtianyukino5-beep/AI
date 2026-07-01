@@ -903,12 +903,14 @@ function DepositPage(props: {
           <History size={22} />
         </div>
         <PaginatedTable
-          columns={['受付番号', '資産', 'ネットワーク', '数量', '状態', '証明', '申請時刻']}
+          columns={['受付番号', '資産', 'ネットワーク', '数量', '申請時評価額', '価格ソース', '状態', '証明', '申請時刻']}
           rows={props.dashboard.deposits.map((deposit) => [
             deposit.businessNo,
             deposit.asset,
             deposit.network ?? '-',
             deposit.amount,
+            deposit.valuationJpy ? formatJpy(deposit.valuationJpy) : '-',
+            deposit.priceSourceLabelJa ?? priceSourceLabelJa(deposit.priceSource),
             depositStatusJa(deposit.status),
             deposit.proofImageName || deposit.proofText,
             formatTime(deposit.createdAt),
@@ -1069,12 +1071,14 @@ function WithdrawalPage(props: {
           <History size={22} />
         </div>
         <PaginatedTable
-          columns={['受付番号', '資産', 'ネットワーク', '数量', '出金先', '状態', '申請時刻']}
+          columns={['受付番号', '資産', 'ネットワーク', '数量', '申請時評価額', '価格ソース', '出金先', '状態', '申請時刻']}
           rows={props.dashboard.withdrawals.map((withdrawal) => [
             withdrawal.businessNo,
             withdrawal.asset,
             withdrawal.network ?? '-',
             withdrawal.asset === 'JPY' ? formatJpy(withdrawal.amount) : withdrawal.amount,
+            withdrawal.valuationJpy ? formatJpy(withdrawal.valuationJpy) : '-',
+            withdrawal.priceSourceLabelJa ?? priceSourceLabelJa(withdrawal.priceSource),
             withdrawal.destinationText,
             withdrawalStatusJa(withdrawal.status),
             formatTime(withdrawal.createdAt),
@@ -1097,6 +1101,8 @@ function ConversionPage(props: {
   const [quote, setQuote] = useState<ConversionQuote | null>(null);
   const selectedBalance = balanceOf(props.dashboard.balances, fromAsset);
   const liveUnitPrice = estimatedAssetJpy(fromAsset, '1', props.dashboard.marketTickers);
+  const quoteUnitPrice = quote?.fromAsset === fromAsset ? Number(quote.unitPriceJpy) : liveUnitPrice;
+  const quoteEstimatedJpy = quote?.fromAsset === fromAsset ? Number(quote.receivedJpy) : estimatedAssetJpy(fromAsset, amount || '0', props.dashboard.marketTickers);
   const convertibleBalances = props.dashboard.balances.filter((item) => item.asset !== 'JPY' && Number(item.available) > 0);
 
   async function createQuote(event: FormEvent) {
@@ -1143,8 +1149,8 @@ function ConversionPage(props: {
             <strong>{fromAsset} → JPY</strong>
           </div>
           <div>
-            <span>参考レート</span>
-            <strong>1 {fromAsset} = {formatJpy(liveUnitPrice)}</strong>
+            <span>{quote?.fromAsset === fromAsset ? '今回の見積レート' : '参考レート'}</span>
+            <strong>1 {fromAsset} = {formatJpy(quoteUnitPrice)}</strong>
           </div>
         </div>
         <div className="asset-picker">
@@ -1226,6 +1232,16 @@ function ConversionPage(props: {
               ))}
             </div>
             <div className="rate-meta-grid">
+              <span>価格ソース</span>
+              <strong>{quote.priceSourceLabelJa ?? rateSourceLabel(quote.rateSource)}</strong>
+              <span>取得市場</span>
+              <strong>{quote.marketExchange ?? '-'}</strong>
+              <span>取引ペア</span>
+              <strong>{quote.marketPair ?? quote.displayPair}</strong>
+              <span>Bid / Ask</span>
+              <strong>{quote.marketBidJpy && quote.marketAskJpy ? `${formatJpy(quote.marketBidJpy)} / ${formatJpy(quote.marketAskJpy)}` : '-'}</strong>
+              <span>Last</span>
+              <strong>{quote.marketLastJpy ? formatJpy(quote.marketLastJpy) : '-'}</strong>
               <span>暗号資産/USDT</span>
               <strong>{quote.snapshot.cryptoToUsdt}</strong>
               <span>USDT/USD</span>
@@ -1237,6 +1253,7 @@ function ConversionPage(props: {
               <span>有効期限</span>
               <strong>{formatTime(quote.expiresAt)}</strong>
             </div>
+            <p className="market-source-note">{quote.priceSourceDetailJa ?? '見積取得時点の市場データに基づいてJPY評価額を算出しています。'}</p>
             <p>
               {fromAsset === 'USDT' ? 'USDT は USD -> JPY の順でJPY残高へ反映されます。' : `${fromAsset} は USDT -> USD -> JPY の順に換算され、JPY残高へ反映されます。`}
               レートは見積取得時点の市場データに基づき、有効期限内のみ確定できます。
@@ -1249,8 +1266,8 @@ function ConversionPage(props: {
           <div className="conversion-help">
             <div className="quote-hero muted">
               <span>{fromAsset}/JPY</span>
-              <strong>{amount || '0'} {fromAsset} ≒ {formatJpy(estimatedAssetJpy(fromAsset, amount || '0', props.dashboard.marketTickers))}</strong>
-              <small>最新市場レートに基づいて更新されます。</small>
+              <strong>{amount || '0'} {fromAsset} ≒ {formatJpy(quoteEstimatedJpy)}</strong>
+              <small>見積もり取得後、公開API価格またはバックアップ価格のソースを表示します。</small>
             </div>
             <p>選択した資産数量に対してJPY受取見積を作成します。見積もり取得後、有効期限内に確定してください。</p>
           </div>
@@ -1278,6 +1295,18 @@ function AiPage(props: {
   const safeMissedPage = Math.min(missedPage, missedTotalPages);
   const missedStart = (safeMissedPage - 1) * missedPageSize;
   const visibleMissed = props.dashboard.missedOpportunities.slice(missedStart, missedStart + missedPageSize);
+  const missedPager =
+    props.dashboard.missedOpportunities.length > missedPageSize ? (
+      <PaginationControls
+        page={safeMissedPage}
+        totalPages={missedTotalPages}
+        totalItems={props.dashboard.missedOpportunities.length}
+        start={missedStart}
+        pageSize={missedPageSize}
+        onPrev={() => setMissedPage((value) => Math.max(1, value - 1))}
+        onNext={() => setMissedPage((value) => Math.min(missedTotalPages, value + 1))}
+      />
+    ) : null;
 
   useEffect(() => {
     if (missedPage > missedTotalPages) {
@@ -1508,6 +1537,7 @@ function AiPage(props: {
         </div>
       ) : null}
       <h3>失敗記録</h3>
+      {missedPager}
       <div className="cards-list compact-list">
         {props.dashboard.missedOpportunities.length === 0 ? <EmptyState text="失敗した裁定機会はまだありません。" /> : null}
         {visibleMissed.map((opportunity) => (
@@ -1527,28 +1557,7 @@ function AiPage(props: {
           </article>
         ))}
       </div>
-      {props.dashboard.missedOpportunities.length > missedPageSize ? (
-        <div className="pagination-row">
-          <span>
-            {props.dashboard.missedOpportunities.length}件中 {missedStart + 1}-{Math.min(missedStart + missedPageSize, props.dashboard.missedOpportunities.length)}件
-          </span>
-          <div className="inline-actions">
-            <button disabled={safeMissedPage <= 1} type="button" onClick={() => setMissedPage((value) => Math.max(1, value - 1))}>
-              前へ
-            </button>
-            <strong>
-              {safeMissedPage} / {missedTotalPages}
-            </strong>
-            <button
-              disabled={safeMissedPage >= missedTotalPages}
-              type="button"
-              onClick={() => setMissedPage((value) => Math.min(missedTotalPages, value + 1))}
-            >
-              次へ
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {missedPager}
       {missedSelected ? (
         <div className="execution-result missed-detail">
           <div className="panel-head">
@@ -2289,12 +2298,14 @@ function AdminDeposits(props: {
           <Wallet size={22} />
         </div>
         <PaginatedTable
-          columns={['单号', '客户', '资产', '数量', '凭证', '状态', '操作']}
+          columns={['单号', '客户', '资产', '数量', '日元估值', '价格来源', '凭证', '状态', '操作']}
           rows={props.state.deposits.map((deposit) => [
             deposit.businessNo,
             customerEmail(props.state, deposit.customerId),
             `${deposit.asset}${deposit.network ? ` / ${deposit.network}` : ''}`,
             deposit.amount,
+            deposit.valuationJpy ? formatJpy(deposit.valuationJpy) : '-',
+            deposit.priceSourceLabelJa ?? priceSourceLabelJa(deposit.priceSource),
             <button className="link-button" type="button" onClick={() => setSelectedDeposit(deposit)}>
               查看凭证
             </button>,
@@ -2329,6 +2340,16 @@ function AdminDeposits(props: {
               <strong>{selectedDeposit.depositAddressSnapshot ?? '-'}</strong>
               <span>数量</span>
               <strong>{selectedDeposit.amount}</strong>
+              <span>申请时日元估值</span>
+              <strong>{selectedDeposit.valuationJpy ? formatJpy(selectedDeposit.valuationJpy) : '-'}</strong>
+              <span>单位价格</span>
+              <strong>{selectedDeposit.unitPriceJpy ? `1 ${selectedDeposit.asset} = ${formatJpy(selectedDeposit.unitPriceJpy)}` : '-'}</strong>
+              <span>价格来源</span>
+              <strong>{selectedDeposit.priceSourceLabelJa ?? priceSourceLabelJa(selectedDeposit.priceSource)}</strong>
+              <span>来源详情</span>
+              <strong>{selectedDeposit.priceSourceDetailJa ?? '-'}</strong>
+              <span>价格更新时间</span>
+              <strong>{selectedDeposit.priceUpdatedAt ? formatTime(selectedDeposit.priceUpdatedAt) : '-'}</strong>
               <span>TxID / 备注</span>
               <strong>{selectedDeposit.proofText}</strong>
               <span>上传文件</span>
@@ -2445,12 +2466,14 @@ function AdminWithdrawals(props: {
         <Banknote size={22} />
       </div>
       <PaginatedTable
-        columns={['单号', '客户', '资产', '数量', '出金先', '状态', '操作']}
+        columns={['单号', '客户', '资产', '数量', '日元估值', '价格来源', '出金先', '状态', '操作']}
         rows={props.state.withdrawals.map((withdrawal) => [
           withdrawal.businessNo,
           customerEmail(props.state, withdrawal.customerId),
           withdrawal.asset,
           withdrawal.asset === 'JPY' ? formatJpy(withdrawal.amount) : withdrawal.amount,
+          withdrawal.valuationJpy ? formatJpy(withdrawal.valuationJpy) : '-',
+          withdrawal.priceSourceLabelJa ?? priceSourceLabelJa(withdrawal.priceSource),
           <button className="link-button" type="button" onClick={() => setSelectedWithdrawal(withdrawal)}>
             查看详情
           </button>,
@@ -2483,6 +2506,16 @@ function AdminWithdrawals(props: {
             <strong>{selectedWithdrawal.asset}</strong>
             <span>数量</span>
             <strong>{selectedWithdrawal.asset === 'JPY' ? formatJpy(selectedWithdrawal.amount) : selectedWithdrawal.amount}</strong>
+            <span>申请时日元估值</span>
+            <strong>{selectedWithdrawal.valuationJpy ? formatJpy(selectedWithdrawal.valuationJpy) : '-'}</strong>
+            <span>单位价格</span>
+            <strong>{selectedWithdrawal.unitPriceJpy ? `1 ${selectedWithdrawal.asset} = ${formatJpy(selectedWithdrawal.unitPriceJpy)}` : '-'}</strong>
+            <span>价格来源</span>
+            <strong>{selectedWithdrawal.priceSourceLabelJa ?? priceSourceLabelJa(selectedWithdrawal.priceSource)}</strong>
+            <span>来源详情</span>
+            <strong>{selectedWithdrawal.priceSourceDetailJa ?? '-'}</strong>
+            <span>价格更新时间</span>
+            <strong>{selectedWithdrawal.priceUpdatedAt ? formatTime(selectedWithdrawal.priceUpdatedAt) : '-'}</strong>
             <span>类型</span>
             <strong>{selectedWithdrawal.destinationType === 'bank' ? '银行口座' : '钱包地址'}</strong>
             <span>出金先</span>
@@ -2918,6 +2951,18 @@ function PaginatedTable({ columns, rows, pageSize = 10 }: { columns: string[]; r
   const safePage = Math.min(page, totalPages);
   const start = (safePage - 1) * pageSize;
   const visibleRows = rows.slice(start, start + pageSize);
+  const pager =
+    rows.length > pageSize ? (
+      <PaginationControls
+        page={safePage}
+        totalPages={totalPages}
+        totalItems={rows.length}
+        start={start}
+        pageSize={pageSize}
+        onPrev={() => setPage((value) => Math.max(1, value - 1))}
+        onNext={() => setPage((value) => Math.min(totalPages, value + 1))}
+      />
+    ) : null;
 
   useEffect(() => {
     if (page > totalPages) {
@@ -2927,23 +2972,46 @@ function PaginatedTable({ columns, rows, pageSize = 10 }: { columns: string[]; r
 
   return (
     <div className="paged-table">
+      {pager}
       <DataTable columns={columns} rows={visibleRows} />
-      {rows.length > pageSize ? (
-        <div className="pagination-row">
-          <span>
-            {rows.length}件中 {start + 1}-{Math.min(start + pageSize, rows.length)}件
-          </span>
-          <div className="inline-actions">
-            <button disabled={safePage <= 1} type="button" onClick={() => setPage((value) => Math.max(1, value - 1))}>
-              前へ
-            </button>
-            <strong>{safePage} / {totalPages}</strong>
-            <button disabled={safePage >= totalPages} type="button" onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
-              次へ
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {pager}
+    </div>
+  );
+}
+
+function PaginationControls({
+  page,
+  totalPages,
+  totalItems,
+  start,
+  pageSize,
+  onPrev,
+  onNext,
+}: {
+  page: number;
+  totalPages: number;
+  totalItems: number;
+  start: number;
+  pageSize: number;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="pagination-row">
+      <span>
+        {totalItems}件中 {start + 1}-{Math.min(start + pageSize, totalItems)}件
+      </span>
+      <div className="inline-actions">
+        <button disabled={page <= 1} type="button" onClick={onPrev}>
+          前へ
+        </button>
+        <strong>
+          {page} / {totalPages}
+        </strong>
+        <button disabled={page >= totalPages} type="button" onClick={onNext}>
+          次へ
+        </button>
+      </div>
     </div>
   );
 }
@@ -2965,14 +3033,19 @@ function estimatedAssetJpy(asset: Asset, amount: string | number, tickers: Marke
   if (asset === 'JPY') {
     return Number(amount) || 0;
   }
-  const pair = asset === 'BTC' ? 'BTC/JPY' : asset === 'ETH' ? 'ETH/JPY' : null;
-  if (pair) {
-    const ticker = tickers.find((item) => item.pair === pair);
-    return Math.floor((Number(amount) || 0) * (Number(ticker?.lastJpy) || 0));
+  const pair = `${asset}/JPY`;
+  const pairTickers = tickers.filter((item) => item.pair === pair);
+  const realApiTickers = pairTickers.filter((item) => item.source === 'real_api');
+  const pricePool = realApiTickers.length ? realApiTickers : pairTickers;
+  if (pricePool.length) {
+    const prices = pricePool
+      .map((item) => Number(item.lastJpy))
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .sort((a, b) => a - b);
+    const median = prices[Math.floor(prices.length / 2)] ?? 0;
+    return Math.floor((Number(amount) || 0) * median);
   }
-  const usdt = tickers.find((item) => item.pair === 'BTC/JPY');
-  const fallbackUsdJpy = usdt ? Number(usdt.lastJpy) / 64000 : 157;
-  return Math.floor((Number(amount) || 0) * fallbackUsdJpy);
+  return 0;
 }
 
 function compactImage(file: File) {
@@ -3095,6 +3168,16 @@ function rateSourceLabel(source: ConversionQuote['rateSource']) {
     manual: '手動レート補完',
   };
   return labels[source];
+}
+
+function priceSourceLabelJa(source?: 'real_api' | 'fallback' | 'manual' | 'mixed') {
+  const labels: Record<'real_api' | 'fallback' | 'manual' | 'mixed', string> = {
+    real_api: '公開API価格',
+    fallback: 'バックアップ価格',
+    manual: '手動補完価格',
+    mixed: '混合価格',
+  };
+  return source ? labels[source] : '-';
 }
 
 function depositStatusJa(status: DepositOrder['status']) {
