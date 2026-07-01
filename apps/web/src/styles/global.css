@@ -754,6 +754,29 @@ button:disabled {
   grid-column: 1 / -1;
 }
 
+.paged-table {
+  display: grid;
+  gap: 10px;
+}
+
+.pagination-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(143, 215, 199, 0.16);
+  border-radius: 8px;
+  background: rgba(143, 215, 199, 0.08);
+  padding: 10px 12px;
+}
+
+.pagination-row span,
+.pagination-row strong {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 900;
+}
+
 .panel {
   min-width: 0;
   padding: 16px;
@@ -1305,6 +1328,46 @@ select:focus {
   word-break: break-all;
   color: #103f45;
   font-weight: 900;
+}
+
+.admin-funds-workspace {
+  align-items: start;
+}
+
+.deposit-address-admin-panel {
+  min-height: 100%;
+}
+
+.deposit-address-row {
+  align-items: stretch;
+}
+
+.address-editor {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(120px, 0.55fr);
+  gap: 8px;
+  width: min(620px, 100%);
+}
+
+.address-editor label {
+  color: rgba(219, 233, 228, 0.72);
+  font-size: 12px;
+}
+
+.address-editor label:first-child {
+  grid-column: 1 / -1;
+}
+
+.address-editor .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+}
+
+.checkbox-label input {
+  width: 18px;
+  min-height: 18px;
 }
 
 .deposit-steps {
@@ -1989,6 +2052,10 @@ tr:last-child td {
   .exchange-controls {
     grid-template-columns: 1fr;
     min-width: 0;
+  }
+
+  .address-editor {
+    grid-template-columns: 1fr;
   }
 
   .opportunity-detail-grid,

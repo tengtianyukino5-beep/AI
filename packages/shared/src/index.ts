@@ -70,12 +70,27 @@ export interface DepositOrder {
   customerId: string;
   asset: CryptoAsset;
   network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum';
+  depositAddressId?: string;
+  depositAddressSnapshot?: string;
   amount: string;
   status: 'pending' | 'approved' | 'rejected';
   proofText: string;
   proofImageName?: string;
   proofImageDataUrl?: string;
   createdAt: string;
+}
+
+export interface DepositAddressConfig {
+  id: string;
+  asset: CryptoAsset;
+  network: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum';
+  labelJa: string;
+  labelZh: string;
+  address: string;
+  memo?: string;
+  minConfirmations: number;
+  enabled: boolean;
+  updatedAt: string;
 }
 
 export interface WithdrawalOrder {
@@ -276,6 +291,7 @@ export interface DashboardData {
   balances: AssetBalance[];
   deposits: DepositOrder[];
   withdrawals: WithdrawalOrder[];
+  depositAddresses: DepositAddressConfig[];
   ledger: LedgerEntry[];
   opportunities: SimulationOpportunity[];
   missedOpportunities: SimulationOpportunity[];

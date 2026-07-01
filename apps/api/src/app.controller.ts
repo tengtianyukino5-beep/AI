@@ -199,6 +199,15 @@ export class AppController {
     return this.safe(() => this.appService.updateVip(level, body, this.admin(authorization)));
   }
 
+  @Patch('admin/deposit-addresses/:addressId')
+  updateDepositAddress(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('addressId') addressId: string,
+    @Body() body: { address?: string; memo?: string; minConfirmations?: number | string; enabled?: boolean },
+  ) {
+    return this.safe(() => this.appService.updateDepositAddress(addressId, body, this.admin(authorization)));
+  }
+
   private customer(authorization?: string) {
     return this.appService.customerByToken(this.bearer(authorization));
   }

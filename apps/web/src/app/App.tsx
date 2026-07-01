@@ -32,6 +32,7 @@ import type {
   ConversionQuote,
   CustomerProfile,
   DashboardData,
+  DepositAddressConfig,
   DepositOrder,
   ExchangeConfig,
   LedgerEntry,
@@ -58,6 +59,7 @@ type AdminState = {
   ledger: LedgerEntry[];
   deposits: DepositOrder[];
   withdrawals: WithdrawalOrder[];
+  depositAddresses: DepositAddressConfig[];
   opportunities: SimulationOpportunity[];
   orders: SimulationOrder[];
   vipRules: VipRule[];
@@ -727,6 +729,8 @@ function DepositPage(props: {
   const [proofText, setProofText] = useState('');
   const [proofFileName, setProofFileName] = useState('');
   const [proofPreview, setProofPreview] = useState('');
+  const selectedNetwork = networkForAsset(asset, network);
+  const depositAddress = depositAddressFor(props.dashboard.depositAddresses, asset, selectedNetwork);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -753,7 +757,7 @@ function DepositPage(props: {
               body: JSON.stringify({
                 asset,
                 amount,
-                network,
+                network: selectedNetwork,
                 proofText,
                 proofImageName: proofFileName,
                 proofImageDataUrl: proofPreview.length <= 60000 ? proofPreview : undefined,
@@ -783,8 +787,6 @@ function DepositPage(props: {
     setProofFileName(file.name);
     void compactImage(file).then(setProofPreview).catch(() => setProofPreview(''));
   }
-
-  const depositGuide = depositGuideFor(asset);
 
   return (
     <section className="two-column">
@@ -866,13 +868,27 @@ function DepositPage(props: {
           <LineChart size={22} />
         </div>
         <div className="deposit-address">
-          <span>{asset} Network</span>
-          <strong>{depositGuide.network}</strong>
+          <span>資産 / ネットワーク</span>
+          <strong>{asset} / {selectedNetwork}</strong>
           <span>受取アドレス</span>
-          <code>{depositGuide.address}</code>
+          <code>{depositAddress?.address ?? '現在このネットワークの入金アドレスは準備中です。'}</code>
           <span>最低確認</span>
-          <strong>{depositGuide.confirmations}</strong>
+          <strong>{depositAddress ? `${depositAddress.minConfirmations} confirmations` : '-'}</strong>
+          {depositAddress?.memo ? (
+            <>
+              <span>メモ</span>
+              <strong>{depositAddress.memo}</strong>
+            </>
+          ) : null}
         </div>
+        <button
+          className="secondary-button full"
+          disabled={!depositAddress?.address}
+          type="button"
+          onClick={() => void navigator.clipboard?.writeText(depositAddress?.address ?? '')}
+        >
+          受取アドレスをコピー
+        </button>
         <div className="flow-steps deposit-steps">
           <span className="active">1. 送金</span>
           <span className={proofFileName ? 'active' : ''}>2. 写真提出</span>
@@ -888,7 +904,7 @@ function DepositPage(props: {
           </div>
           <History size={22} />
         </div>
-        <DataTable
+        <PaginatedTable
           columns={['受付番号', '資産', 'ネットワーク', '数量', '状態', '証明', '申請時刻']}
           rows={props.dashboard.deposits.map((deposit) => [
             deposit.businessNo,
@@ -1049,7 +1065,7 @@ function WithdrawalPage(props: {
           </div>
           <History size={22} />
         </div>
-        <DataTable
+        <PaginatedTable
           columns={['受付番号', '資産', '数量', '出金先', '状態', '申請時刻']}
           rows={props.dashboard.withdrawals.map((withdrawal) => [
             withdrawal.businessNo,
@@ -2096,6 +2112,37 @@ function AdminDeposits(props: {
   refresh: (token?: string) => Promise<AdminState>;
 }) {
   const [selectedDeposit, setSelectedDeposit] = useState<DepositOrder | null>(null);
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
+  const [addressDrafts, setAddressDrafts] = useState<Record<string, { address: string; memo: string; minConfirmations: string; enabled: boolean }>>(() =>
+    Object.fromEntries(
+      props.state.depositAddresses.map((item) => [
+        item.id,
+        {
+          address: item.address,
+          memo: item.memo ?? '',
+          minConfirmations: String(item.minConfirmations),
+          enabled: item.enabled,
+        },
+      ]),
+    ),
+  );
+
+  useEffect(() => {
+    if (editingAddressId) return;
+    setAddressDrafts(
+      Object.fromEntries(
+        props.state.depositAddresses.map((item) => [
+          item.id,
+          {
+            address: item.address,
+            memo: item.memo ?? '',
+            minConfirmations: String(item.minConfirmations),
+            enabled: item.enabled,
+          },
+        ]),
+      ),
+    );
+  }, [props.state.depositAddresses, editingAddressId]);
 
   async function action(depositId: string, type: 'approve' | 'reject') {
     const result = await props.run(
@@ -2105,70 +2152,186 @@ function AdminDeposits(props: {
     if (result) await props.refresh();
   }
 
+  function setAddressDraft(id: string, key: 'address' | 'memo' | 'minConfirmations' | 'enabled', value: string | boolean) {
+    setEditingAddressId(id);
+    setAddressDrafts((drafts) => ({
+      ...drafts,
+      [id]: {
+        address: drafts[id]?.address ?? '',
+        memo: drafts[id]?.memo ?? '',
+        minConfirmations: drafts[id]?.minConfirmations ?? '1',
+        enabled: drafts[id]?.enabled ?? true,
+        [key]: value,
+      },
+    }));
+  }
+
+  async function saveAddress(address: DepositAddressConfig) {
+    const draft = addressDrafts[address.id] ?? {
+      address: address.address,
+      memo: address.memo ?? '',
+      minConfirmations: String(address.minConfirmations),
+      enabled: address.enabled,
+    };
+    const result = await props.run(
+      () =>
+        props.call<AdminState>(
+          `/admin/deposit-addresses/${address.id}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({
+              address: draft.address,
+              memo: draft.memo,
+              minConfirmations: draft.minConfirmations,
+              enabled: draft.enabled,
+            }),
+          },
+          props.token,
+        ),
+      '入金地址配置已保存，并会同步到客户前台。',
+    );
+    if (result) {
+      setEditingAddressId(null);
+      await props.refresh();
+    }
+  }
+
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>入金管理</h2>
-        <Wallet size={22} />
-      </div>
-      <DataTable
-        columns={['单号', '客户', '资产', '数量', '凭证', '状态', '操作']}
-        rows={props.state.deposits.map((deposit) => [
-          deposit.businessNo,
-          customerEmail(props.state, deposit.customerId),
-          `${deposit.asset}${deposit.network ? ` / ${deposit.network}` : ''}`,
-          deposit.amount,
-          <button className="link-button" type="button" onClick={() => setSelectedDeposit(deposit)}>
-            查看凭证
-          </button>,
-          deposit.status,
-          deposit.status === 'pending' ? (
-            <span className="inline-actions" key={deposit.id}>
-              <button type="button" onClick={() => void action(deposit.id, 'approve')}>确认</button>
-              <button type="button" onClick={() => void action(deposit.id, 'reject')}>驳回</button>
-            </span>
-          ) : (
-            '已处理'
-          ),
-        ])}
-      />
-      {selectedDeposit ? (
-        <div className="admin-detail-panel">
-          <div className="panel-head">
-            <div>
-              <p className="eyebrow">Deposit Proof</p>
-              <h3>{selectedDeposit.businessNo}</h3>
-            </div>
-            <button className="ghost-button" type="button" onClick={() => setSelectedDeposit(null)}>
-              关闭
-            </button>
-          </div>
-          <div className="result-grid">
-            <span>客户</span>
-            <strong>{customerEmail(props.state, selectedDeposit.customerId)}</strong>
-            <span>资产</span>
-            <strong>{selectedDeposit.asset}</strong>
-            <span>数量</span>
-            <strong>{selectedDeposit.amount}</strong>
-            <span>TxID / 备注</span>
-            <strong>{selectedDeposit.proofText}</strong>
-            <span>上传文件</span>
-            <strong>{selectedDeposit.proofImageName || '未上传'}</strong>
-            <span>状态</span>
-            <strong>{selectedDeposit.status}</strong>
-          </div>
-          <div className="proof-placeholder">
-            {selectedDeposit.proofImageDataUrl ? (
-              <img alt="入金凭证" src={selectedDeposit.proofImageDataUrl} />
-            ) : (
-              <>
-                <Upload size={24} />
-                <span>{selectedDeposit.proofImageName || '未上传凭证图片'}</span>
-              </>
-            )}
-          </div>
+    <section className="two-column admin-funds-workspace">
+      <div className="panel">
+        <div className="panel-head">
+          <h2>入金管理</h2>
+          <Wallet size={22} />
         </div>
-      ) : null}
+        <PaginatedTable
+          columns={['单号', '客户', '资产', '数量', '凭证', '状态', '操作']}
+          rows={props.state.deposits.map((deposit) => [
+            deposit.businessNo,
+            customerEmail(props.state, deposit.customerId),
+            `${deposit.asset}${deposit.network ? ` / ${deposit.network}` : ''}`,
+            deposit.amount,
+            <button className="link-button" type="button" onClick={() => setSelectedDeposit(deposit)}>
+              查看凭证
+            </button>,
+            deposit.status,
+            deposit.status === 'pending' ? (
+              <span className="inline-actions" key={deposit.id}>
+                <button type="button" onClick={() => void action(deposit.id, 'approve')}>确认</button>
+                <button type="button" onClick={() => void action(deposit.id, 'reject')}>驳回</button>
+              </span>
+            ) : (
+              '已处理'
+            ),
+          ])}
+        />
+        {selectedDeposit ? (
+          <div className="admin-detail-panel">
+            <div className="panel-head">
+              <div>
+                <p className="eyebrow">Deposit Proof</p>
+                <h3>{selectedDeposit.businessNo}</h3>
+              </div>
+              <button className="ghost-button" type="button" onClick={() => setSelectedDeposit(null)}>
+                关闭
+              </button>
+            </div>
+            <div className="result-grid">
+              <span>客户</span>
+              <strong>{customerEmail(props.state, selectedDeposit.customerId)}</strong>
+              <span>资产</span>
+              <strong>{selectedDeposit.asset} / {selectedDeposit.network ?? '-'}</strong>
+              <span>入金地址快照</span>
+              <strong>{selectedDeposit.depositAddressSnapshot ?? '-'}</strong>
+              <span>数量</span>
+              <strong>{selectedDeposit.amount}</strong>
+              <span>TxID / 备注</span>
+              <strong>{selectedDeposit.proofText}</strong>
+              <span>上传文件</span>
+              <strong>{selectedDeposit.proofImageName || '未上传'}</strong>
+              <span>状态</span>
+              <strong>{selectedDeposit.status}</strong>
+            </div>
+            <div className="proof-placeholder">
+              {selectedDeposit.proofImageDataUrl ? (
+                <img alt="入金凭证" src={selectedDeposit.proofImageDataUrl} />
+              ) : (
+                <>
+                  <Upload size={24} />
+                  <span>{selectedDeposit.proofImageName || '未上传凭证图片'}</span>
+                </>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </div>
+      <div className="panel deposit-address-admin-panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Wallet Address</p>
+            <h2>入金地址配置</h2>
+          </div>
+          <SlidersHorizontal size={22} />
+        </div>
+        <div className="admin-list">
+          {props.state.depositAddresses.map((address) => {
+            const draft = addressDrafts[address.id] ?? {
+              address: address.address,
+              memo: address.memo ?? '',
+              minConfirmations: String(address.minConfirmations),
+              enabled: address.enabled,
+            };
+            return (
+              <article className="admin-row deposit-address-row" key={address.id}>
+                <div>
+                  <strong>{address.asset} / {address.network}</strong>
+                  <p>{address.labelZh}</p>
+                  <small>客户前台只读显示；修改后新入金申请会使用最新地址，旧订单保留地址快照。</small>
+                </div>
+                <div className="address-editor">
+                  <label>
+                    地址
+                    <input
+                      value={draft.address}
+                      onChange={(event) => setAddressDraft(address.id, 'address', event.target.value)}
+                      onFocus={() => setEditingAddressId(address.id)}
+                    />
+                  </label>
+                  <label>
+                    备注
+                    <input
+                      value={draft.memo}
+                      onChange={(event) => setAddressDraft(address.id, 'memo', event.target.value)}
+                      onFocus={() => setEditingAddressId(address.id)}
+                      placeholder="可选，例如专用Memo"
+                    />
+                  </label>
+                  <label>
+                    确认数
+                    <input
+                      min="1"
+                      type="number"
+                      value={draft.minConfirmations}
+                      onChange={(event) => setAddressDraft(address.id, 'minConfirmations', event.target.value)}
+                      onFocus={() => setEditingAddressId(address.id)}
+                    />
+                  </label>
+                  <label className="checkbox-label">
+                    <input
+                      checked={draft.enabled}
+                      type="checkbox"
+                      onChange={(event) => setAddressDraft(address.id, 'enabled', event.target.checked)}
+                    />
+                    启用
+                  </label>
+                  <button className="secondary-button" type="button" onClick={() => void saveAddress(address)}>
+                    保存地址
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </div>
     </section>
   );
 }
@@ -2196,7 +2359,7 @@ function AdminWithdrawals(props: {
         <h2>出金管理</h2>
         <Banknote size={22} />
       </div>
-      <DataTable
+      <PaginatedTable
         columns={['单号', '客户', '资产', '数量', '出金先', '状态', '操作']}
         rows={props.state.withdrawals.map((withdrawal) => [
           withdrawal.businessNo,
@@ -2664,6 +2827,42 @@ function DataTable({ columns, rows }: { columns: string[]; rows: Array<Array<Rea
   );
 }
 
+function PaginatedTable({ columns, rows, pageSize = 10 }: { columns: string[]; rows: Array<Array<ReactNode>>; pageSize?: number }) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * pageSize;
+  const visibleRows = rows.slice(start, start + pageSize);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  return (
+    <div className="paged-table">
+      <DataTable columns={columns} rows={visibleRows} />
+      {rows.length > pageSize ? (
+        <div className="pagination-row">
+          <span>
+            {rows.length}件中 {start + 1}-{Math.min(start + pageSize, rows.length)}件
+          </span>
+          <div className="inline-actions">
+            <button disabled={safePage <= 1} type="button" onClick={() => setPage((value) => Math.max(1, value - 1))}>
+              前へ
+            </button>
+            <strong>{safePage} / {totalPages}</strong>
+            <button disabled={safePage >= totalPages} type="button" onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
+              次へ
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function EmptyState({ text }: { text: string }) {
   return (
     <div className="empty-state">
@@ -2883,23 +3082,6 @@ function customerEmail(state: AdminState, customerId: string) {
   return state.customers.find((customer) => customer.id === customerId)?.email ?? customerId;
 }
 
-function depositGuideFor(asset: Exclude<Asset, 'JPY'>) {
-  const guides: Record<Exclude<Asset, 'JPY'>, { network: string; address: string; confirmations: string }> = {
-    ETH: {
-      network: 'Ethereum / ERC-20',
-      address: '0xA8F4...92C1...7B50',
-      confirmations: '12 confirmations',
-    },
-    BTC: {
-      network: 'Bitcoin',
-      address: 'bc1q8k...ai7x...p0m9',
-      confirmations: '3 confirmations',
-    },
-    USDT: {
-      network: 'TRC-20 / ERC-20',
-      address: 'TQx9...USDT...Kp31',
-      confirmations: '20 confirmations',
-    },
-  };
-  return guides[asset];
+function depositAddressFor(addresses: DepositAddressConfig[], asset: Exclude<Asset, 'JPY'>, network: DepositAddressConfig['network']) {
+  return addresses.find((item) => item.asset === asset && item.network === network && item.enabled);
 }

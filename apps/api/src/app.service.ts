@@ -64,12 +64,27 @@ interface DepositOrder {
   customerId: string;
   asset: CryptoAsset;
   network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum';
+  depositAddressId?: string;
+  depositAddressSnapshot?: string;
   amount: string;
   status: 'pending' | 'approved' | 'rejected';
   proofText: string;
   proofImageName?: string;
   proofImageDataUrl?: string;
   createdAt: string;
+}
+
+interface DepositAddressConfig {
+  id: string;
+  asset: CryptoAsset;
+  network: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum';
+  labelJa: string;
+  labelZh: string;
+  address: string;
+  memo?: string;
+  minConfirmations: number;
+  enabled: boolean;
+  updatedAt: string;
 }
 
 interface WithdrawalOrder {
@@ -425,6 +440,52 @@ export class AppService {
   private readonly ledger: LedgerEntry[] = [];
   private readonly deposits: DepositOrder[] = [];
   private readonly withdrawals: WithdrawalOrder[] = [];
+  private readonly depositAddresses: DepositAddressConfig[] = [
+    {
+      id: 'addr_eth_ethereum',
+      asset: 'ETH',
+      network: 'Ethereum',
+      labelJa: 'ETH Ethereum 入金アドレス',
+      labelZh: 'ETH Ethereum 入金地址',
+      address: '0x8b4F3A2d9E5c1B7A6F0D4a922f7E6C18A1d9026C',
+      minConfirmations: 12,
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: 'addr_btc_bitcoin',
+      asset: 'BTC',
+      network: 'Bitcoin',
+      labelJa: 'BTC Bitcoin 入金アドレス',
+      labelZh: 'BTC Bitcoin 入金地址',
+      address: 'bc1qai9x4l0testdepositaddress7v8s3mf0k2q9x',
+      minConfirmations: 3,
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: 'addr_usdt_erc20',
+      asset: 'USDT',
+      network: 'ERC-20',
+      labelJa: 'USDT ERC-20 入金アドレス',
+      labelZh: 'USDT ERC-20 入金地址',
+      address: '0x6F4aC7bD2e991Cbe9A311E7a8d0D5fB80D6A1c44',
+      minConfirmations: 20,
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: 'addr_usdt_trc20',
+      asset: 'USDT',
+      network: 'TRC-20',
+      labelJa: 'USDT TRC-20 入金アドレス',
+      labelZh: 'USDT TRC-20 入金地址',
+      address: 'TQx9uP6sA1TestUSDTTrc20DepositKp31',
+      minConfirmations: 20,
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+    },
+  ];
   private readonly quotes = new Map<string, ConversionQuote>();
   private readonly opportunities: SimulationOpportunity[] = [];
   private readonly orders: SimulationOrder[] = [];
@@ -654,8 +715,9 @@ export class AppService {
     return {
       customer: this.publicCustomer(customer),
       balances: this.getBalances(customer.id),
-      deposits: this.deposits.filter((item) => item.customerId === customer.id).slice(0, 12),
-      withdrawals: this.withdrawals.filter((item) => item.customerId === customer.id).slice(0, 12),
+      deposits: this.deposits.filter((item) => item.customerId === customer.id),
+      withdrawals: this.withdrawals.filter((item) => item.customerId === customer.id),
+      depositAddresses: this.depositAddresses.filter((item) => item.enabled),
       ledger: this.ledger.filter((item) => item.customerId === customer.id).slice(0, 20),
       opportunities: this.opportunities.filter((item) => item.customerId === customer.id && item.status === 'available'),
       missedOpportunities: this.opportunities
@@ -714,12 +776,16 @@ export class AppService {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error('请输入有效的入金数量。');
     }
+    const depositNetwork = input.asset === 'USDT' ? input.network : input.asset === 'BTC' ? 'Bitcoin' : 'Ethereum';
+    const address = this.depositAddressFor(input.asset, depositNetwork);
     const deposit: DepositOrder = {
       id: this.id('dep'),
       businessNo: this.businessNo('DEP'),
       customerId: customer.id,
       asset: input.asset,
-      network: input.asset === 'USDT' ? input.network : input.asset === 'BTC' ? 'Bitcoin' : 'Ethereum',
+      network: depositNetwork,
+      depositAddressId: address.id,
+      depositAddressSnapshot: address.address,
       amount: this.formatDecimal(amount),
       status: 'pending',
       proofText: input.proofText || 'transfer proof',
@@ -948,6 +1014,7 @@ export class AppService {
       ledger: this.ledger,
       deposits: this.deposits,
       withdrawals: this.withdrawals,
+      depositAddresses: this.depositAddresses,
       opportunities: this.opportunities,
       orders: this.orders,
       vipRules: this.vipRules,
@@ -1176,6 +1243,36 @@ export class AppService {
     return this.adminState();
   }
 
+  updateDepositAddress(
+    addressId: string,
+    input: { address?: string; memo?: string; minConfirmations?: number | string; enabled?: boolean },
+    operator: string,
+  ) {
+    const address = this.depositAddresses.find((item) => item.id === addressId);
+    if (!address) {
+      throw new Error('入金地址配置不存在');
+    }
+    if (typeof input.address === 'string') {
+      const nextAddress = input.address.trim();
+      if (!nextAddress) {
+        throw new Error('入金地址不能为空');
+      }
+      address.address = nextAddress;
+    }
+    if (typeof input.memo === 'string') {
+      address.memo = input.memo.trim() || undefined;
+    }
+    if (input.minConfirmations !== undefined) {
+      address.minConfirmations = Math.max(1, Math.floor(Number(input.minConfirmations)));
+    }
+    if (input.enabled !== undefined) {
+      address.enabled = Boolean(input.enabled);
+    }
+    address.updatedAt = this.now();
+    this.audit('deposit_address.update', operator, 'deposit_address', address.id, `${address.asset} ${address.network}`);
+    return this.adminState();
+  }
+
   async refreshMarketsNow(operator: string) {
     await this.refreshExternalMarkets(true);
     this.audit('exchange.refresh', operator, 'exchange', 'all', '手动刷新交易所行情 API');
@@ -1262,6 +1359,14 @@ export class AppService {
 
   private getBalances(customerId: string) {
     return [...(this.balances.get(customerId)?.values() ?? [])];
+  }
+
+  private depositAddressFor(asset: CryptoAsset, network?: DepositOrder['network']) {
+    const address = this.depositAddresses.find((item) => item.asset === asset && item.network === network && item.enabled);
+    if (!address) {
+      throw new Error(`${asset} ${network ?? ''} の入金アドレスは現在利用できません。管理部門に確認してください。`);
+    }
+    return address;
   }
 
   private balance(customerId: string, asset: Asset) {
