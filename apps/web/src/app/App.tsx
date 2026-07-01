@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState, type ReactNode } from 'react';
+﻿import { FormEvent, useEffect, useState, type ReactNode } from 'react';
 import {
   Activity,
   ArrowRightLeft,
@@ -106,7 +106,6 @@ const customerNav: Array<{ key: CustomerPage; label: string; icon: typeof Layout
   { key: 'invite', label: '招待', icon: Gift },
   { key: 'ledger', label: '履歴', icon: History },
 ];
-
 const adminNav: Array<{ key: AdminPage; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'overview', label: '总览', icon: LayoutDashboard },
   { key: 'customers', label: '客户', icon: UserRound },
@@ -117,7 +116,6 @@ const adminNav: Array<{ key: AdminPage; label: string; icon: typeof LayoutDashbo
   { key: 'rules', label: '规则', icon: SlidersHorizontal },
   { key: 'audit', label: '审计', icon: History },
 ];
-
 export function App() {
   const [area] = useState<'customer' | 'admin'>(() => (window.location.pathname.startsWith('/admin') ? 'admin' : 'customer'));
   const [customerPage, setCustomerPage] = useState<CustomerPage>('dashboard');
@@ -474,8 +472,8 @@ function CustomerHeader({ dashboard }: { dashboard: DashboardData }) {
         </div>
         <div className="market-card" aria-label="AI signal">
           <div className="market-card-top">
-            <span>AI Signal</span>
-            <strong>{dashboard.marketScanner.signalState === 'opportunity' ? 'LIVE' : 'SCAN'}</strong>
+            <span>AIシグナル</span>
+            <strong>{dashboard.marketScanner.signalState === 'opportunity' ? '検出' : '監視'}</strong>
           </div>
           <div className="spark-bars" aria-hidden="true">
             {[42, 64, 51, 78, 69, 88, 74, 96].map((height, index) => (
@@ -484,7 +482,7 @@ function CustomerHeader({ dashboard }: { dashboard: DashboardData }) {
           </div>
           <div className="market-card-bottom">
             <span>{signalTicker?.pair ?? dashboard.marketScanner.dominantPair}</span>
-            <span>{signalTicker ? `${signalTicker.exchangeName} ${formatJpy(signalTicker.lastJpy)}` : 'Market standby'}</span>
+            <span>{signalTicker ? `${signalTicker.exchangeName} ${formatJpy(signalTicker.lastJpy)}` : '監視待機'}</span>
           </div>
         </div>
       </div>
@@ -540,7 +538,7 @@ function CustomerDashboard(props: {
         <div className="panel scanner-panel">
           <div className="panel-head">
             <div>
-              <p className="eyebrow">AI Market Scanner</p>
+            <p className="eyebrow">AI裁定モニター</p>
               <h2>自動AI裁定</h2>
             </div>
             <button className={dashboard.customer.autoAiEnabled ? 'toggle on' : 'toggle'} disabled={autoDisabled} type="button" onClick={toggleAuto}>
@@ -599,7 +597,7 @@ function CustomerDashboard(props: {
         <div className="panel-head">
           <div>
             <p className="eyebrow">AI Summary</p>
-            <h2>AI分析摘要</h2>
+            <h2>AI分析サマリー</h2>
           </div>
           <Sparkles size={22} />
         </div>
@@ -793,7 +791,7 @@ function DepositPage(props: {
       <form className="panel deposit-panel" onSubmit={submit}>
         <div className="panel-head">
           <div>
-            <p className="eyebrow">Deposit</p>
+            <p className="eyebrow">入金</p>
             <h2>USDT / BTC / ETH 入金</h2>
           </div>
           <Wallet size={22} />
@@ -862,7 +860,7 @@ function DepositPage(props: {
       <aside className="panel deposit-guide">
         <div className="panel-head">
           <div>
-            <p className="eyebrow">Transfer Detail</p>
+            <p className="eyebrow">送金情報</p>
             <h2>入金案内</h2>
           </div>
           <LineChart size={22} />
@@ -899,7 +897,7 @@ function DepositPage(props: {
       <section className="panel deposit-history-panel">
         <div className="panel-head">
           <div>
-            <p className="eyebrow">Deposit Status</p>
+            <p className="eyebrow">入金状況</p>
             <h2>入金申請履歴</h2>
           </div>
           <History size={22} />
@@ -932,9 +930,13 @@ function WithdrawalPage(props: {
   const [network, setNetwork] = useState<'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum' | 'Bank'>('Bank');
   const [amount, setAmount] = useState('10000');
   const [destinationType, setDestinationType] = useState<'bank' | 'wallet'>('bank');
-  const [destinationText, setDestinationText] = useState('');
+  const [destinationText, setDestinationText] = useState(() => withdrawalDestinationFor(props.dashboard.customer, 'JPY', 'Bank'));
   const [note, setNote] = useState('');
   const selectedBalance = balanceOf(props.dashboard.balances, asset);
+
+  useEffect(() => {
+    setDestinationText(withdrawalDestinationFor(props.dashboard.customer, asset, network));
+  }, [asset, network]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -943,21 +945,21 @@ function WithdrawalPage(props: {
         props.call(
           '/customer/withdrawals',
           {
-            method: 'POST',
-            body: JSON.stringify({
-              asset,
-              amount,
-              destinationType,
-              destinationText: asset === 'JPY' ? destinationText : `${network} / ${destinationText}`,
-              note,
-            }),
-          },
-          props.token,
+              method: 'POST',
+              body: JSON.stringify({
+                asset,
+                amount,
+                destinationType,
+                network,
+                destinationText,
+                note,
+              }),
+            },
+            props.token,
         ),
       '出金申請を送信しました。審査完了までお待ちください。',
     );
     if (result) {
-      setDestinationText('');
       setNote('');
       await props.refresh();
     }
@@ -968,7 +970,7 @@ function WithdrawalPage(props: {
       <form className="panel" onSubmit={submit}>
         <div className="panel-head">
           <div>
-            <p className="eyebrow">Withdrawal</p>
+            <p className="eyebrow">出金</p>
             <h2>出金申請</h2>
           </div>
           <Banknote size={22} />
@@ -1044,6 +1046,7 @@ function WithdrawalPage(props: {
             placeholder={destinationType === 'bank' ? '銀行名 / 支店 / 口座番号 / 名義' : `${network} / ウォレットアドレス`}
           />
         </label>
+        <p className="upload-note">登録済みの出金先を自動反映します。必要に応じて手入力で上書きできます。</p>
         <label>
           備考
           <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="任意" />
@@ -1060,16 +1063,17 @@ function WithdrawalPage(props: {
       <section className="panel">
         <div className="panel-head">
           <div>
-            <p className="eyebrow">Withdrawal Status</p>
+            <p className="eyebrow">出金状況</p>
             <h2>出金履歴</h2>
           </div>
           <History size={22} />
         </div>
         <PaginatedTable
-          columns={['受付番号', '資産', '数量', '出金先', '状態', '申請時刻']}
+          columns={['受付番号', '資産', 'ネットワーク', '数量', '出金先', '状態', '申請時刻']}
           rows={props.dashboard.withdrawals.map((withdrawal) => [
             withdrawal.businessNo,
             withdrawal.asset,
+            withdrawal.network ?? '-',
             withdrawal.asset === 'JPY' ? formatJpy(withdrawal.amount) : withdrawal.amount,
             withdrawal.destinationText,
             withdrawalStatusJa(withdrawal.status),
@@ -1266,8 +1270,20 @@ function AiPage(props: {
   const [lastOrder, setLastOrder] = useState<SimulationOrder | null>(null);
   const [selected, setSelected] = useState<SimulationOpportunity | null>(null);
   const [missedSelected, setMissedSelected] = useState<SimulationOpportunity | null>(null);
+  const [missedPage, setMissedPage] = useState(1);
   const autoDisabled = props.dashboard.customer.kycStatus !== 'approved';
   const dailyLimitReached = props.dashboard.todayUsed >= props.dashboard.todayLimit;
+  const missedPageSize = 10;
+  const missedTotalPages = Math.max(1, Math.ceil(props.dashboard.missedOpportunities.length / missedPageSize));
+  const safeMissedPage = Math.min(missedPage, missedTotalPages);
+  const missedStart = (safeMissedPage - 1) * missedPageSize;
+  const visibleMissed = props.dashboard.missedOpportunities.slice(missedStart, missedStart + missedPageSize);
+
+  useEffect(() => {
+    if (missedPage > missedTotalPages) {
+      setMissedPage(missedTotalPages);
+    }
+  }, [missedPage, missedTotalPages]);
 
   async function toggleAuto() {
     const next = !props.dashboard.customer.autoAiEnabled;
@@ -1312,7 +1328,7 @@ function AiPage(props: {
       <div className="panel ai-command-panel">
         <div className="panel-head">
           <div>
-            <p className="eyebrow">AI Market Scanner</p>
+            <p className="eyebrow">AI裁定モニター</p>
             <h2>裁定機会</h2>
           </div>
           <Bot size={22} />
@@ -1367,8 +1383,8 @@ function AiPage(props: {
         </div>
         <div className="runtime-status-card">
           <div>
-            <span>行情レイヤー</span>
-            <strong>{props.dashboard.tradingRuntime.marketDataMode === 'real_public_api' ? '公共API優先' : 'バックアップ併用'}</strong>
+            <span>相場レイヤー</span>
+            <strong>{props.dashboard.tradingRuntime.marketDataMode === 'real_public_api' ? '公開API優先' : 'バックアップ併用'}</strong>
           </div>
           <div>
             <span>実行レイヤー</span>
@@ -1387,7 +1403,7 @@ function AiPage(props: {
       <div className="panel">
       <div className="panel-head">
         <div>
-          <p className="eyebrow">Live Opportunities</p>
+          <p className="eyebrow">裁定機会</p>
           <h2>利用可能な裁定機会</h2>
         </div>
         <Search size={22} />
@@ -1432,7 +1448,7 @@ function AiPage(props: {
         <div className="execution-result">
           <div className="panel-head">
             <div>
-              <p className="eyebrow">AI Analysis Detail</p>
+              <p className="eyebrow">AI分析詳細</p>
               <h3>{selected.pair} 裁定詳細</h3>
             </div>
             <Search size={22} />
@@ -1491,10 +1507,10 @@ function AiPage(props: {
           </div>
         </div>
       ) : null}
-      <h3>失敗履歴</h3>
+      <h3>失敗記録</h3>
       <div className="cards-list compact-list">
         {props.dashboard.missedOpportunities.length === 0 ? <EmptyState text="失敗した裁定機会はまだありません。" /> : null}
-        {props.dashboard.missedOpportunities.map((opportunity) => (
+        {visibleMissed.map((opportunity) => (
           <article className="opportunity-card missed-card" key={opportunity.id}>
             <div>
               <strong>{opportunity.pair} / {opportunity.spreadPercent}%</strong>
@@ -1511,11 +1527,33 @@ function AiPage(props: {
           </article>
         ))}
       </div>
+      {props.dashboard.missedOpportunities.length > missedPageSize ? (
+        <div className="pagination-row">
+          <span>
+            {props.dashboard.missedOpportunities.length}件中 {missedStart + 1}-{Math.min(missedStart + missedPageSize, props.dashboard.missedOpportunities.length)}件
+          </span>
+          <div className="inline-actions">
+            <button disabled={safeMissedPage <= 1} type="button" onClick={() => setMissedPage((value) => Math.max(1, value - 1))}>
+              前へ
+            </button>
+            <strong>
+              {safeMissedPage} / {missedTotalPages}
+            </strong>
+            <button
+              disabled={safeMissedPage >= missedTotalPages}
+              type="button"
+              onClick={() => setMissedPage((value) => Math.min(missedTotalPages, value + 1))}
+            >
+              次へ
+            </button>
+          </div>
+        </div>
+      ) : null}
       {missedSelected ? (
         <div className="execution-result missed-detail">
           <div className="panel-head">
             <div>
-              <p className="eyebrow">Missed Opportunity</p>
+              <p className="eyebrow">失敗詳細</p>
               <h3>{missedSelected.pair} 失敗詳細</h3>
             </div>
             <Clock3 size={22} />
@@ -1561,7 +1599,7 @@ function AiPage(props: {
         <div className="execution-result">
           <div className="panel-head">
             <div>
-              <p className="eyebrow">Execution Result</p>
+              <p className="eyebrow">実行結果</p>
               <h3>AI裁定処理が完了しました</h3>
             </div>
             <CheckCircle2 size={22} />
@@ -1571,7 +1609,7 @@ function AiPage(props: {
             <strong>{lastOrder.businessNo}</strong>
             <span>実行レイヤー</span>
             <strong>{executionVenueJa(lastOrder.executionVenue)}</strong>
-            <span>行情ソース</span>
+            <span>市場ソース</span>
             <strong>{marketSourceJa(lastOrder.marketSource)}</strong>
             <span>買付取引所</span>
             <strong>{lastOrder.buyExchange ?? '-'}</strong>
@@ -1608,8 +1646,8 @@ function AiPage(props: {
         </div>
       ) : null}
       <h3>注文履歴</h3>
-        <DataTable
-        columns={['業務番号', '結果', 'AI实行', '行情', '取引所', '資産', '元本', '粗利益', '控除', '純利益', '理由', '時刻']}
+      <PaginatedTable
+        columns={['業務番号', '結果', 'AI実行', '市場', '取引所', '資産', '元本', '粗利益', '控除', '純利益', '理由', '時刻']}
         rows={props.dashboard.orders.map((order) => [
           order.businessNo,
           order.status === 'settled' ? '成功' : order.status === 'failed' ? '失敗' : orderStatusJa(order.status),
@@ -1914,6 +1952,11 @@ function AdminCustomers(props: {
     creditScore: String(selected?.creditScore ?? 80),
     manualDailyLimit: selected?.manualDailyLimit === undefined ? '' : String(selected.manualDailyLimit),
     successRatePercent: String(selected?.successRatePercent ?? 90),
+    withdrawalBankAccount: selected?.withdrawalBankAccount ?? '',
+    withdrawalUsdtTrc20Address: selected?.withdrawalUsdtTrc20Address ?? '',
+    withdrawalUsdtErc20Address: selected?.withdrawalUsdtErc20Address ?? '',
+    withdrawalBtcAddress: selected?.withdrawalBtcAddress ?? '',
+    withdrawalEthAddress: selected?.withdrawalEthAddress ?? '',
   });
 
   useEffect(() => {
@@ -1925,6 +1968,11 @@ function AdminCustomers(props: {
       creditScore: String(selected.creditScore ?? 80),
       manualDailyLimit: selected.manualDailyLimit === undefined ? '' : String(selected.manualDailyLimit),
       successRatePercent: String(selected.successRatePercent ?? 90),
+      withdrawalBankAccount: selected.withdrawalBankAccount ?? '',
+      withdrawalUsdtTrc20Address: selected.withdrawalUsdtTrc20Address ?? '',
+      withdrawalUsdtErc20Address: selected.withdrawalUsdtErc20Address ?? '',
+      withdrawalBtcAddress: selected.withdrawalBtcAddress ?? '',
+      withdrawalEthAddress: selected.withdrawalEthAddress ?? '',
     });
   }, [selected?.id]);
 
@@ -1943,6 +1991,11 @@ function AdminCustomers(props: {
               creditScore: draft.creditScore,
               manualDailyLimit: draft.manualDailyLimit === '' ? null : draft.manualDailyLimit,
               successRatePercent: draft.successRatePercent,
+              withdrawalBankAccount: draft.withdrawalBankAccount,
+              withdrawalUsdtTrc20Address: draft.withdrawalUsdtTrc20Address,
+              withdrawalUsdtErc20Address: draft.withdrawalUsdtErc20Address,
+              withdrawalBtcAddress: draft.withdrawalBtcAddress,
+              withdrawalEthAddress: draft.withdrawalEthAddress,
             }),
           },
           props.token,
@@ -2040,7 +2093,39 @@ function AdminCustomers(props: {
             </div>
             <div className="rule-note">
               <strong>规则说明</strong>
-              <p>VIP 只控制每日机会次数。利润由实时行情价差、双边手续费 0.15%、滑点 0.1%、风险缓冲 0.05% 计算。成功率 90% 时，每 10 次机会约 1 次见送り。</p>
+              <p>VIP 只控制每日机会次数。利润由实时行情价差、双边手续费 0.15%、滑点 0.1%、风险缓冲 0.05% 计算。成功率 90% 时，每 10 次机会约 1 次失败记录。</p>
+            </div>
+            <div className="rule-note">
+              <strong>出金地址闭环</strong>
+              <p>客户前台提交新的出金地址后会自动保存到客户资料；后台在这里修改后，客户下次选择对应资产和网络时会自动带入。</p>
+            </div>
+            <div className="form-grid">
+              <label>
+                出金銀行口座
+                <input value={draft.withdrawalBankAccount} onChange={(event) => setDraft((item) => ({ ...item, withdrawalBankAccount: event.target.value }))} />
+              </label>
+              <label>
+                USDT TRC-20 出金アドレス
+                <input
+                  value={draft.withdrawalUsdtTrc20Address}
+                  onChange={(event) => setDraft((item) => ({ ...item, withdrawalUsdtTrc20Address: event.target.value }))}
+                />
+              </label>
+              <label>
+                USDT ERC-20 出金アドレス
+                <input
+                  value={draft.withdrawalUsdtErc20Address}
+                  onChange={(event) => setDraft((item) => ({ ...item, withdrawalUsdtErc20Address: event.target.value }))}
+                />
+              </label>
+              <label>
+                BTC 出金アドレス
+                <input value={draft.withdrawalBtcAddress} onChange={(event) => setDraft((item) => ({ ...item, withdrawalBtcAddress: event.target.value }))} />
+              </label>
+              <label>
+                ETH 出金アドレス
+                <input value={draft.withdrawalEthAddress} onChange={(event) => setDraft((item) => ({ ...item, withdrawalEthAddress: event.target.value }))} />
+              </label>
             </div>
             <button className="primary-button" type="button" onClick={() => void saveCustomer()}>
               保存客户参数
@@ -3007,7 +3092,7 @@ function rateSourceLabel(source: ConversionQuote['rateSource']) {
   const labels: Record<ConversionQuote['rateSource'], string> = {
     primary: '主レート源',
     backup: '予備レート源',
-    manual: '手動レート兜底',
+    manual: '手動レート補完',
   };
   return labels[source];
 }
@@ -3062,15 +3147,15 @@ function executionModeZh(mode?: DashboardData['tradingRuntime']['executionMode']
 
 function executionVenueJa(venue?: SimulationOrder['executionVenue']) {
   const labels: Record<NonNullable<SimulationOrder['executionVenue']>, string> = {
-    internal_test: 'AI实行完了',
-    live_exchange: '取引所AI实行完了',
+    internal_test: 'AI実行完了',
+    live_exchange: '取引所AI実行完了',
   };
   return venue ? labels[venue] : '-';
 }
 
 function marketSourceJa(source?: SimulationOrder['marketSource']) {
   const labels: Record<NonNullable<SimulationOrder['marketSource']>, string> = {
-    real_api: '公共API',
+    real_api: '公開API',
     fallback: '予備データ',
     manual: '手動',
     mixed: '混合',
@@ -3085,3 +3170,20 @@ function customerEmail(state: AdminState, customerId: string) {
 function depositAddressFor(addresses: DepositAddressConfig[], asset: Exclude<Asset, 'JPY'>, network: DepositAddressConfig['network']) {
   return addresses.find((item) => item.asset === asset && item.network === network && item.enabled);
 }
+
+function withdrawalDestinationFor(customer: CustomerProfile, asset: Asset, network: WithdrawalOrder['network']) {
+  if (asset === 'JPY') {
+    return customer.withdrawalBankAccount ?? '';
+  }
+  if (asset === 'BTC') {
+    return customer.withdrawalBtcAddress ?? '';
+  }
+  if (asset === 'ETH') {
+    return customer.withdrawalEthAddress ?? '';
+  }
+  if (network === 'ERC-20') {
+    return customer.withdrawalUsdtErc20Address ?? '';
+  }
+  return customer.withdrawalUsdtTrc20Address ?? '';
+}
+

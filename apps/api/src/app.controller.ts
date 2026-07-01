@@ -80,7 +80,15 @@ export class AppController {
   @Post('customer/withdrawals')
   createWithdrawal(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: { asset: Asset; amount: string; destinationType: 'bank' | 'wallet'; destinationText: string; note?: string },
+    @Body()
+    body: {
+      asset: Asset;
+      amount: string;
+      destinationType: 'bank' | 'wallet';
+      network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum' | 'Bank';
+      destinationText: string;
+      note?: string;
+    },
   ) {
     return this.safe(() => this.appService.createWithdrawal(this.customer(authorization), body));
   }
@@ -171,6 +179,11 @@ export class AppController {
       creditScore?: number | string;
       manualDailyLimit?: number | string | null;
       successRatePercent?: number | string;
+      withdrawalBankAccount?: string;
+      withdrawalUsdtTrc20Address?: string;
+      withdrawalUsdtErc20Address?: string;
+      withdrawalBtcAddress?: string;
+      withdrawalEthAddress?: string;
     },
   ) {
     return this.safe(() => this.appService.updateCustomer(customerId, body, this.admin(authorization)));

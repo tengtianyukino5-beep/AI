@@ -45,6 +45,11 @@ export interface CustomerProfile {
   aiRunning: boolean;
   inviteCode: string;
   kycDocumentFrontName?: string;
+  withdrawalBankAccount?: string;
+  withdrawalUsdtTrc20Address?: string;
+  withdrawalUsdtErc20Address?: string;
+  withdrawalBtcAddress?: string;
+  withdrawalEthAddress?: string;
   createdAt: string;
 }
 
@@ -101,6 +106,7 @@ export interface WithdrawalOrder {
   amount: string;
   status: 'pending' | 'approved' | 'rejected';
   destinationType: 'bank' | 'wallet';
+  network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum' | 'Bank';
   destinationText: string;
   note?: string;
   createdAt: string;

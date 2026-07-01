@@ -39,6 +39,11 @@ interface CustomerProfile {
   aiRunning: boolean;
   inviteCode: string;
   kycDocumentFrontName?: string;
+  withdrawalBankAccount?: string;
+  withdrawalUsdtTrc20Address?: string;
+  withdrawalUsdtErc20Address?: string;
+  withdrawalBtcAddress?: string;
+  withdrawalEthAddress?: string;
   createdAt: string;
 }
 
@@ -95,6 +100,7 @@ interface WithdrawalOrder {
   amount: string;
   status: 'pending' | 'approved' | 'rejected';
   destinationType: 'bank' | 'wallet';
+  network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum' | 'Bank';
   destinationText: string;
   note?: string;
   createdAt: string;
@@ -369,7 +375,7 @@ class TestExecutionProvider implements ExecutionProvider {
   execute(request: ExecutionRequest): ExecutionResult {
     const { opportunity, marketSource } = request;
     const netProfit = Number(opportunity.estimatedProfitJpy);
-    const sourceLabel = marketSource === 'real_api' ? '公共取引所API' : marketSource === 'mixed' ? '公共APIとバックアップデータ' : 'バックアップデータ';
+    const sourceLabel = marketSource === 'real_api' ? '公開取引所API' : marketSource === 'mixed' ? '公開APIとバックアップデータ' : 'バックアップデータ';
     if (!Number.isFinite(netProfit) || netProfit <= 0) {
       return {
         status: 'failed',
@@ -800,7 +806,14 @@ export class AppService {
 
   createWithdrawal(
     customer: CustomerRecord,
-    input: { asset: Asset; amount: string; destinationType: 'bank' | 'wallet'; destinationText: string; note?: string },
+    input: {
+      asset: Asset;
+      amount: string;
+      destinationType: 'bank' | 'wallet';
+      network?: WithdrawalOrder['network'];
+      destinationText: string;
+      note?: string;
+    },
   ) {
     if (customer.kycStatus !== 'approved') {
       throw new Error('出金申請には本人確認が必要です。');
@@ -816,6 +829,9 @@ export class AppService {
     if (Number(balance.available) < amount) {
       throw new Error('利用可能残高が不足しています。');
     }
+    const network = input.asset === 'JPY' ? 'Bank' : input.network ?? this.defaultWithdrawalNetwork(input.asset);
+    const destinationText = input.destinationText.trim();
+    this.saveWithdrawalDestination(customer, input.asset, network, destinationText);
     const withdrawal: WithdrawalOrder = {
       id: this.id('wd'),
       businessNo: this.businessNo('WDR'),
@@ -824,7 +840,8 @@ export class AppService {
       amount: input.amount,
       status: 'pending',
       destinationType: input.destinationType,
-      destinationText: input.destinationText.trim(),
+      network,
+      destinationText,
       note: input.note,
       createdAt: this.now(),
     };
@@ -1167,6 +1184,11 @@ export class AppService {
       creditScore?: number | string;
       manualDailyLimit?: number | string | null;
       successRatePercent?: number | string;
+      withdrawalBankAccount?: string;
+      withdrawalUsdtTrc20Address?: string;
+      withdrawalUsdtErc20Address?: string;
+      withdrawalBtcAddress?: string;
+      withdrawalEthAddress?: string;
     },
     operator: string,
   ) {
@@ -1191,6 +1213,11 @@ export class AppService {
     if (input.successRatePercent !== undefined) {
       customer.successRatePercent = Math.round(this.clampNumber(Number(input.successRatePercent), 0, 100));
     }
+    this.updateOptionalText(customer, 'withdrawalBankAccount', input.withdrawalBankAccount);
+    this.updateOptionalText(customer, 'withdrawalUsdtTrc20Address', input.withdrawalUsdtTrc20Address);
+    this.updateOptionalText(customer, 'withdrawalUsdtErc20Address', input.withdrawalUsdtErc20Address);
+    this.updateOptionalText(customer, 'withdrawalBtcAddress', input.withdrawalBtcAddress);
+    this.updateOptionalText(customer, 'withdrawalEthAddress', input.withdrawalEthAddress);
     this.audit(
       'customer.update',
       operator,
@@ -1359,6 +1386,44 @@ export class AppService {
 
   private getBalances(customerId: string) {
     return [...(this.balances.get(customerId)?.values() ?? [])];
+  }
+
+  private updateOptionalText<T extends keyof CustomerRecord>(customer: CustomerRecord, key: T, value: unknown) {
+    if (value === undefined) {
+      return;
+    }
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (text) {
+      customer[key] = text as CustomerRecord[T];
+    } else {
+      delete customer[key];
+    }
+  }
+
+  private defaultWithdrawalNetwork(asset: Asset): WithdrawalOrder['network'] {
+    if (asset === 'JPY') return 'Bank';
+    if (asset === 'BTC') return 'Bitcoin';
+    if (asset === 'ETH') return 'Ethereum';
+    return 'TRC-20';
+  }
+
+  private saveWithdrawalDestination(
+    customer: CustomerRecord,
+    asset: Asset,
+    network: WithdrawalOrder['network'] | undefined,
+    destinationText: string,
+  ) {
+    if (asset === 'JPY') {
+      customer.withdrawalBankAccount = destinationText;
+    } else if (asset === 'BTC') {
+      customer.withdrawalBtcAddress = destinationText;
+    } else if (asset === 'ETH') {
+      customer.withdrawalEthAddress = destinationText;
+    } else if (asset === 'USDT' && network === 'ERC-20') {
+      customer.withdrawalUsdtErc20Address = destinationText;
+    } else if (asset === 'USDT') {
+      customer.withdrawalUsdtTrc20Address = destinationText;
+    }
   }
 
   private depositAddressFor(asset: CryptoAsset, network?: DepositOrder['network']) {
