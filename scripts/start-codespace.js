@@ -53,12 +53,14 @@ console.log('Admin backend UI:  http://localhost:3000/admin');
 console.log('API health:        http://localhost:3000/api/v1/health');
 console.log('');
 
-run('web:build', ['--filter', '@twodays/web', 'build']);
+run('shared:build', ['--filter', '@twodays/shared', 'build']);
 
-const api = start('api:3000', ['--filter', '@twodays/api', 'dev'], { API_PORT: '3000' });
+const api = start('api:3001', ['--filter', '@twodays/api', 'dev'], { API_PORT: '3001' });
+const web = start('web:3000', ['--filter', '@twodays/web', 'dev']);
 
 function shutdown() {
   api.kill('SIGTERM');
+  web.kill('SIGTERM');
 }
 
 process.on('SIGINT', shutdown);
