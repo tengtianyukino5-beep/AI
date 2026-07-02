@@ -94,6 +94,14 @@ type AdminState = {
 type CustomerPage = 'dashboard' | 'kyc' | 'deposit' | 'withdraw' | 'convert' | 'ai' | 'vip' | 'invite' | 'ledger';
 type AdminPage = 'overview' | 'customers' | 'kyc' | 'deposits' | 'withdrawals' | 'balances' | 'rules' | 'audit';
 type VipDraftKey = 'dailyLimit' | 'minBalanceJpy' | 'upgradeBalanceJpy' | 'highProfitProbability' | 'aiPower';
+type AdminRealtimeState = 'offline' | 'connecting' | 'live' | 'fallback';
+type HistoryFilter = {
+  query: string;
+  status: string;
+  asset: string;
+  fromDate: string;
+  toDate: string;
+};
 
 const customerNav: Array<{ key: CustomerPage; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'dashboard', label: 'ホーム', icon: LayoutDashboard },
@@ -124,6 +132,7 @@ export function App() {
   const [adminToken, setAdminToken] = useState(() => localStorage.getItem('adminToken') ?? '');
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [adminState, setAdminState] = useState<AdminState | null>(null);
+  const [adminRealtimeState, setAdminRealtimeState] = useState<AdminRealtimeState>('offline');
   const [toast, setToast] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -151,12 +160,48 @@ export function App() {
 
   useEffect(() => {
     if (!adminToken) {
+      setAdminRealtimeState('offline');
       return undefined;
     }
-    const timer = window.setInterval(() => {
+    setAdminRealtimeState('connecting');
+    if (typeof EventSource === 'undefined') {
+      setAdminRealtimeState('fallback');
+      const timer = window.setInterval(() => {
+        void loadAdmin(adminToken);
+      }, 3500);
+      return () => window.clearInterval(timer);
+    }
+
+    let fallbackTimer: number | undefined;
+    const source = new EventSource(`${API_BASE}/admin/state/stream?token=${encodeURIComponent(adminToken)}`);
+    const startFallback = () => {
+      if (fallbackTimer) return;
+      setAdminRealtimeState('fallback');
       void loadAdmin(adminToken);
-    }, 3500);
-    return () => window.clearInterval(timer);
+      fallbackTimer = window.setInterval(() => {
+        void loadAdmin(adminToken);
+      }, 3500);
+    };
+    const handleState = (event: MessageEvent<string>) => {
+      try {
+        setAdminState(JSON.parse(event.data) as AdminState);
+        setAdminRealtimeState('live');
+        if (fallbackTimer) {
+          window.clearInterval(fallbackTimer);
+          fallbackTimer = undefined;
+        }
+      } catch {
+        startFallback();
+      }
+    };
+    source.addEventListener('admin-state', handleState as EventListener);
+    source.onerror = startFallback;
+    return () => {
+      source.close();
+      if (fallbackTimer) {
+        window.clearInterval(fallbackTimer);
+      }
+    };
   }, [adminToken]);
 
   useEffect(() => {
@@ -262,6 +307,7 @@ export function App() {
       token={adminToken}
       onLogin={adminLoginDone}
       onLogout={logoutAdmin}
+      realtimeState={adminRealtimeState}
       call={call}
       run={run}
       refresh={loadAdmin}
@@ -727,10 +773,13 @@ function DepositPage(props: {
   const [proofText, setProofText] = useState('');
   const [proofFileName, setProofFileName] = useState('');
   const [proofPreview, setProofPreview] = useState('');
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>(() => emptyHistoryFilter());
+  const [selectedDeposit, setSelectedDeposit] = useState<DepositOrder | null>(null);
   const selectedNetwork = networkForAsset(asset, network);
   const depositAddress = depositAddressFor(props.dashboard.depositAddresses, asset, selectedNetwork);
   const depositTotalJpy = sumValuationJpy(props.dashboard.deposits);
   const latestDepositAt = latestRecordTime(props.dashboard.deposits);
+  const filteredDeposits = filterDeposits(props.dashboard.deposits, historyFilter);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -912,9 +961,22 @@ function DepositPage(props: {
             { label: '申請時評価額', value: formatJpy(depositTotalJpy), note: latestDepositAt ? `最新 ${formatTime(latestDepositAt)}` : '記録なし' },
           ]}
         />
+        <HistoryFilterBar
+          assetOptions={assetFilterOptions(['USDT', 'BTC', 'ETH'])}
+          filter={historyFilter}
+          placeholder="受付番号、TxID、価格ソースで検索"
+          resultCount={filteredDeposits.length}
+          statusOptions={[
+            { value: 'pending', label: '確認中' },
+            { value: 'approved', label: '反映済み' },
+            { value: 'rejected', label: '差戻し' },
+          ]}
+          totalCount={props.dashboard.deposits.length}
+          onChange={setHistoryFilter}
+        />
         <PaginatedTable
-          columns={['受付番号', '資産', 'ネットワーク', '数量', '申請時評価額', '価格ソース', '状態', '証明', '申請時刻']}
-          rows={props.dashboard.deposits.map((deposit) => [
+          columns={['受付番号', '資産', 'ネットワーク', '数量', '申請時評価額', '価格ソース', '状態', '証明', '申請時刻', '詳細']}
+          rows={filteredDeposits.map((deposit) => [
             <RecordCode key={`${deposit.id}-no`} primary={deposit.businessNo} secondary={deposit.depositAddressSnapshot ? 'アドレス確認済み' : 'アドレス未設定'} />,
             <AssetBadge key={`${deposit.id}-asset`} asset={deposit.asset} network={deposit.network} />,
             deposit.network ?? '-',
@@ -924,8 +986,12 @@ function DepositPage(props: {
             <StatusBadge key={`${deposit.id}-status`} label={depositStatusJa(deposit.status)} tone={depositStatusTone(deposit.status)} />,
             deposit.proofImageName || deposit.proofText,
             formatTime(deposit.createdAt),
+            <button className="table-action-button" key={`${deposit.id}-detail`} type="button" onClick={() => setSelectedDeposit(deposit)}>
+              詳細
+            </button>,
           ])}
         />
+        {selectedDeposit ? <DepositDetailPanel deposit={selectedDeposit} onClose={() => setSelectedDeposit(null)} /> : null}
       </section>
     </section>
   );
@@ -944,9 +1010,12 @@ function WithdrawalPage(props: {
   const [destinationType, setDestinationType] = useState<'bank' | 'wallet'>('bank');
   const [destinationText, setDestinationText] = useState(() => withdrawalDestinationFor(props.dashboard.customer, 'JPY', 'Bank'));
   const [note, setNote] = useState('');
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>(() => emptyHistoryFilter());
+  const [selectedWithdrawal, setSelectedWithdrawal] = useState<WithdrawalOrder | null>(null);
   const selectedBalance = balanceOf(props.dashboard.balances, asset);
   const withdrawalTotalJpy = sumValuationJpy(props.dashboard.withdrawals);
   const latestWithdrawalAt = latestRecordTime(props.dashboard.withdrawals);
+  const filteredWithdrawals = filterWithdrawals(props.dashboard.withdrawals, historyFilter);
 
   useEffect(() => {
     setDestinationText(withdrawalDestinationFor(props.dashboard.customer, asset, network));
@@ -1090,9 +1159,22 @@ function WithdrawalPage(props: {
             { label: '申請時評価額', value: formatJpy(withdrawalTotalJpy), note: latestWithdrawalAt ? `最新 ${formatTime(latestWithdrawalAt)}` : '記録なし' },
           ]}
         />
+        <HistoryFilterBar
+          assetOptions={assetFilterOptions(['JPY', 'USDT', 'BTC', 'ETH'])}
+          filter={historyFilter}
+          placeholder="受付番号、出金先、備考で検索"
+          resultCount={filteredWithdrawals.length}
+          statusOptions={[
+            { value: 'pending', label: '審査中' },
+            { value: 'approved', label: '出金完了' },
+            { value: 'rejected', label: '差戻し' },
+          ]}
+          totalCount={props.dashboard.withdrawals.length}
+          onChange={setHistoryFilter}
+        />
         <PaginatedTable
-          columns={['受付番号', '資産', 'ネットワーク', '数量', '申請時評価額', '価格ソース', '出金先', '状態', '申請時刻']}
-          rows={props.dashboard.withdrawals.map((withdrawal) => [
+          columns={['受付番号', '資産', 'ネットワーク', '数量', '申請時評価額', '価格ソース', '出金先', '状態', '申請時刻', '詳細']}
+          rows={filteredWithdrawals.map((withdrawal) => [
             <RecordCode key={`${withdrawal.id}-no`} primary={withdrawal.businessNo} secondary={withdrawal.destinationType === 'bank' ? '銀行口座' : 'ウォレット'} />,
             <AssetBadge key={`${withdrawal.id}-asset`} asset={withdrawal.asset} network={withdrawal.network} />,
             withdrawal.network ?? '-',
@@ -1102,8 +1184,12 @@ function WithdrawalPage(props: {
             withdrawal.destinationText,
             <StatusBadge key={`${withdrawal.id}-status`} label={withdrawalStatusJa(withdrawal.status)} tone={withdrawalStatusTone(withdrawal.status)} />,
             formatTime(withdrawal.createdAt),
+            <button className="table-action-button" key={`${withdrawal.id}-detail`} type="button" onClick={() => setSelectedWithdrawal(withdrawal)}>
+              詳細
+            </button>,
           ])}
         />
+        {selectedWithdrawal ? <WithdrawalDetailPanel withdrawal={selectedWithdrawal} onClose={() => setSelectedWithdrawal(null)} /> : null}
       </section>
     </section>
   );
@@ -1307,6 +1393,8 @@ function AiPage(props: {
   const [lastOrder, setLastOrder] = useState<SimulationOrder | null>(null);
   const [selected, setSelected] = useState<SimulationOpportunity | null>(null);
   const [missedSelected, setMissedSelected] = useState<SimulationOpportunity | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<SimulationOrder | null>(null);
+  const [orderFilter, setOrderFilter] = useState<HistoryFilter>(() => emptyHistoryFilter());
   const [missedPage, setMissedPage] = useState(1);
   const autoDisabled = props.dashboard.customer.kycStatus !== 'approved';
   const dailyLimitReached = props.dashboard.todayUsed >= props.dashboard.todayLimit;
@@ -1317,6 +1405,7 @@ function AiPage(props: {
   const visibleMissed = props.dashboard.missedOpportunities.slice(missedStart, missedStart + missedPageSize);
   const orderProfitJpy = props.dashboard.orders.reduce((sum, order) => sum + Number(order.profitJpy || 0), 0);
   const latestOrderAt = latestRecordTime(props.dashboard.orders);
+  const filteredOrders = filterOrders(props.dashboard.orders, orderFilter);
   const missedPager =
     props.dashboard.missedOpportunities.length > missedPageSize ? (
       <PaginationControls
@@ -1692,9 +1781,23 @@ function AiPage(props: {
             { label: '純利益合計', value: formatJpy(orderProfitJpy), note: latestOrderAt ? `最新 ${formatTime(latestOrderAt)}` : '記録なし' },
           ]}
         />
+        <HistoryFilterBar
+          assetOptions={assetFilterOptions(['BTC', 'ETH', 'XRP', 'SOL', 'DOT', 'DOGE', 'LTC', 'MONA', 'BCC', 'XLM'])}
+          filter={orderFilter}
+          placeholder="業務番号、取引所、理由で検索"
+          resultCount={filteredOrders.length}
+          statusOptions={[
+            { value: 'settled', label: '成功' },
+            { value: 'failed', label: '失敗' },
+            { value: 'executing', label: '処理中' },
+            { value: 'cancelled', label: '取消' },
+          ]}
+          totalCount={props.dashboard.orders.length}
+          onChange={setOrderFilter}
+        />
         <PaginatedTable
-          columns={['業務番号', '結果', 'AI実行', '市場', '取引所', '資産', '元本', '粗利益', '控除', '純利益', '理由', '時刻']}
-          rows={props.dashboard.orders.map((order) => [
+          columns={['業務番号', '結果', 'AI実行', '市場', '取引所', '資産', '元本', '粗利益', '控除', '純利益', '理由', '時刻', '詳細']}
+          rows={filteredOrders.map((order) => [
             <RecordCode key={`${order.id}-no`} primary={order.businessNo} secondary={order.opportunityId} />,
             <StatusBadge
               key={`${order.id}-status`}
@@ -1713,8 +1816,12 @@ function AiPage(props: {
             </strong>,
             order.failureReasonJa ?? (order.status === 'settled' ? '残高反映済み' : '-'),
             formatTime(order.createdAt),
+            <button className="table-action-button" key={`${order.id}-detail`} type="button" onClick={() => setSelectedOrder(order)}>
+              詳細
+            </button>,
           ])}
         />
+        {selectedOrder ? <OrderDetailPanel order={selectedOrder} onClose={() => setSelectedOrder(null)} /> : null}
       </div>
       </div>
     </section>
@@ -1857,6 +1964,7 @@ function AdminApp(props: {
   token: string;
   onLogin: (result: { token: string }) => void;
   onLogout: () => void;
+  realtimeState: AdminRealtimeState;
   call: <T>(path: string, options?: RequestInit, token?: string) => Promise<T>;
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
   refresh: (token?: string) => Promise<AdminState>;
@@ -1899,6 +2007,11 @@ function AdminApp(props: {
             <span>Risk OK</span>
             <strong>¥ {Number(props.adminState.summary.totalJpy).toLocaleString('ja-JP')}</strong>
             <small>全站 JPY 可用余额</small>
+          </div>
+          <div className="admin-stream-status">
+            <span>后台同步</span>
+            <strong>{adminRealtimeLabel(props.realtimeState)}</strong>
+            <small>{props.realtimeState === 'live' ? '客户提交后自动更新' : '异常时自动兜底刷新'}</small>
           </div>
           <button className="secondary-button" type="button" onClick={() => void refreshAdminState()}>
             <RefreshCw size={16} />
@@ -2971,6 +3084,202 @@ function Metric({ icon: Icon, label, value, note }: { icon: typeof LayoutDashboa
   );
 }
 
+function HistoryFilterBar({
+  filter,
+  onChange,
+  statusOptions,
+  assetOptions,
+  placeholder,
+  resultCount,
+  totalCount,
+}: {
+  filter: HistoryFilter;
+  onChange: (filter: HistoryFilter) => void;
+  statusOptions: Array<{ value: string; label: string }>;
+  assetOptions: Array<{ value: string; label: string }>;
+  placeholder: string;
+  resultCount: number;
+  totalCount: number;
+}) {
+  const update = (key: keyof HistoryFilter, value: string) => onChange({ ...filter, [key]: value });
+  return (
+    <div className="history-filter-bar">
+      <label>
+        検索
+        <input value={filter.query} onChange={(event) => update('query', event.target.value)} placeholder={placeholder} />
+      </label>
+      <label>
+        状態
+        <select value={filter.status} onChange={(event) => update('status', event.target.value)}>
+          <option value="all">すべて</option>
+          {statusOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        資産
+        <select value={filter.asset} onChange={(event) => update('asset', event.target.value)}>
+          <option value="all">すべて</option>
+          {assetOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        開始日
+        <input type="date" value={filter.fromDate} onChange={(event) => update('fromDate', event.target.value)} />
+      </label>
+      <label>
+        終了日
+        <input type="date" value={filter.toDate} onChange={(event) => update('toDate', event.target.value)} />
+      </label>
+      <div className="history-filter-result">
+        <span>表示件数</span>
+        <strong>{resultCount} / {totalCount}</strong>
+        <button className="ghost-button" type="button" onClick={() => onChange(emptyHistoryFilter())}>
+          条件クリア
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DetailGrid({ items }: { items: Array<{ label: string; value: ReactNode; wide?: boolean }> }) {
+  return (
+    <div className="detail-grid">
+      {items.map((item) => (
+        <div className={item.wide ? 'detail-item wide' : 'detail-item'} key={item.label}>
+          <span>{item.label}</span>
+          <strong>{item.value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CustomerDetailPanel({
+  eyebrow,
+  title,
+  onClose,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="customer-detail-panel">
+      <div className="panel-head compact-head">
+        <div>
+          <p className="eyebrow">{eyebrow}</p>
+          <h3>{title}</h3>
+        </div>
+        <button className="ghost-button" type="button" onClick={onClose}>
+          閉じる
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function DepositDetailPanel({ deposit, onClose }: { deposit: DepositOrder; onClose: () => void }) {
+  return (
+    <CustomerDetailPanel eyebrow="Deposit Detail" title={`入金申請 ${deposit.businessNo}`} onClose={onClose}>
+      <DetailGrid
+        items={[
+          { label: '業務番号', value: deposit.businessNo },
+          { label: '審査状態', value: <StatusBadge label={depositStatusJa(deposit.status)} tone={depositStatusTone(deposit.status)} /> },
+          { label: '資産 / ネットワーク', value: `${deposit.asset} / ${deposit.network ?? '-'}` },
+          { label: '数量', value: deposit.amount },
+          { label: '申請時評価額', value: deposit.valuationJpy ? formatJpy(deposit.valuationJpy) : '-' },
+          { label: '単位価格', value: deposit.unitPriceJpy ? `1 ${deposit.asset} = ${formatJpy(deposit.unitPriceJpy)}` : '-' },
+          { label: '価格ソース', value: deposit.priceSourceLabelJa ?? priceSourceLabelJa(deposit.priceSource) },
+          { label: 'API更新時刻', value: deposit.priceUpdatedAt ? formatFullTime(deposit.priceUpdatedAt) : '-' },
+          { label: '参照市場', value: [deposit.marketExchange, deposit.marketPair].filter(Boolean).join(' / ') || '-' },
+          { label: '申請時刻', value: formatFullTime(deposit.createdAt) },
+          { label: '審査時刻', value: deposit.reviewedAt ? formatFullTime(deposit.reviewedAt) : '-' },
+          { label: '管理メモ', value: deposit.adminNote ?? '管理部門の確認待ちです。', wide: true },
+          { label: '受取アドレス', value: deposit.depositAddressSnapshot ?? '-', wide: true },
+          { label: 'TxID / 受付メモ', value: deposit.proofText || '-', wide: true },
+        ]}
+      />
+      <div className="detail-proof-block">
+        <span>送金証明</span>
+        {deposit.proofImageDataUrl ? (
+          <img alt="送金証明" src={deposit.proofImageDataUrl} />
+        ) : (
+          <strong>{deposit.proofImageName || '証明写真は保存されていません。'}</strong>
+        )}
+      </div>
+    </CustomerDetailPanel>
+  );
+}
+
+function WithdrawalDetailPanel({ withdrawal, onClose }: { withdrawal: WithdrawalOrder; onClose: () => void }) {
+  return (
+    <CustomerDetailPanel eyebrow="Withdrawal Detail" title={`出金申請 ${withdrawal.businessNo}`} onClose={onClose}>
+      <DetailGrid
+        items={[
+          { label: '業務番号', value: withdrawal.businessNo },
+          { label: '審査状態', value: <StatusBadge label={withdrawalStatusJa(withdrawal.status)} tone={withdrawalStatusTone(withdrawal.status)} /> },
+          { label: '資産 / ネットワーク', value: `${withdrawal.asset} / ${withdrawal.network ?? '-'}` },
+          { label: '数量', value: withdrawal.asset === 'JPY' ? formatJpy(withdrawal.amount) : withdrawal.amount },
+          { label: '申請時評価額', value: withdrawal.valuationJpy ? formatJpy(withdrawal.valuationJpy) : '-' },
+          { label: '単位価格', value: withdrawal.unitPriceJpy ? `1 ${withdrawal.asset} = ${formatJpy(withdrawal.unitPriceJpy)}` : '-' },
+          { label: '価格ソース', value: withdrawal.priceSourceLabelJa ?? priceSourceLabelJa(withdrawal.priceSource) },
+          { label: 'API更新時刻', value: withdrawal.priceUpdatedAt ? formatFullTime(withdrawal.priceUpdatedAt) : '-' },
+          { label: '参照市場', value: [withdrawal.marketExchange, withdrawal.marketPair].filter(Boolean).join(' / ') || '-' },
+          { label: '申請時刻', value: formatFullTime(withdrawal.createdAt) },
+          { label: '完了 / 差戻し時刻', value: withdrawal.completedAt ? formatFullTime(withdrawal.completedAt) : '-' },
+          { label: '出金先種別', value: withdrawal.destinationType === 'bank' ? '銀行口座' : 'ウォレット' },
+          { label: '管理メモ', value: withdrawal.adminNote ?? '管理部門の確認待ちです。', wide: true },
+          { label: '出金先', value: withdrawal.destinationText || '-', wide: true },
+          { label: '備考', value: withdrawal.note || '-', wide: true },
+        ]}
+      />
+    </CustomerDetailPanel>
+  );
+}
+
+function OrderDetailPanel({ order, onClose }: { order: SimulationOrder; onClose: () => void }) {
+  return (
+    <CustomerDetailPanel eyebrow="AI Order Detail" title={`AI裁定 ${order.businessNo}`} onClose={onClose}>
+      <DetailGrid
+        items={[
+          { label: '業務番号', value: order.businessNo },
+          { label: '結果', value: <StatusBadge label={order.status === 'settled' ? '成功' : order.status === 'failed' ? '失敗' : orderStatusJa(order.status)} tone={orderStatusTone(order.status)} /> },
+          { label: 'AI実行', value: executionVenueJa(order.executionVenue) },
+          { label: '市場ソース', value: marketSourceJa(order.marketSource) },
+          { label: 'API参照時刻', value: formatFullTime(order.settledAt ?? order.createdAt) },
+          { label: '取引所', value: `${order.buyExchange ?? '-'} -> ${order.sellExchange ?? '-'}` },
+          { label: '対象資産', value: order.baseAsset ?? '-' },
+          { label: '約定数量', value: `${order.executedQuantity ?? '-'} ${order.baseAsset ?? ''}` },
+          { label: '買付価格', value: formatJpy(order.executedBuyJpy ?? '0') },
+          { label: '売却価格', value: formatJpy(order.executedSellJpy ?? '0') },
+          { label: '元本', value: formatJpy(order.principalJpy) },
+          { label: '粗利益', value: formatJpy(order.grossProfitJpy ?? '0') },
+          { label: '控除合計', value: formatJpy(order.totalCostJpy ?? '0') },
+          { label: '純利益', value: formatJpy(order.profitJpy) },
+          { label: 'VIP', value: order.vipLevel },
+          { label: '残高Version', value: `${order.balanceVersionBefore} -> ${order.balanceVersionAfter}` },
+          { label: '買付注文ID', value: order.buyOrderId ?? '-', wide: true },
+          { label: '売却注文ID', value: order.sellOrderId ?? '-', wide: true },
+          { label: '管理メモ', value: order.adminNoteJa ?? (order.status === 'settled' ? '残高反映済みです。' : '利益反映なしとして記録されています。'), wide: true },
+          { label: 'AI分析摘要', value: order.aiSummaryJa, wide: true },
+          { label: '実行説明', value: order.failureDetailJa ?? order.disclosureJa, wide: true },
+        ]}
+      />
+    </CustomerDetailPanel>
+  );
+}
+
 function DataTable({ columns, rows }: { columns: string[]; rows: Array<Array<ReactNode>> }) {
   if (rows.length === 0) {
     return <EmptyState text="データがありません。" />;
@@ -3119,6 +3428,123 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
+function emptyHistoryFilter(): HistoryFilter {
+  return {
+    query: '',
+    status: 'all',
+    asset: 'all',
+    fromDate: '',
+    toDate: '',
+  };
+}
+
+function assetFilterOptions(assets: string[]) {
+  return assets.map((asset) => ({ value: asset, label: asset }));
+}
+
+function filterDeposits(items: DepositOrder[], filter: HistoryFilter) {
+  return items.filter((deposit) =>
+    matchHistoryFilter(filter, {
+      status: deposit.status,
+      asset: deposit.asset,
+      createdAt: deposit.createdAt,
+      values: [
+        deposit.businessNo,
+        deposit.asset,
+        deposit.network,
+        deposit.amount,
+        deposit.proofText,
+        deposit.proofImageName,
+        deposit.depositAddressSnapshot,
+        deposit.priceSourceLabelJa,
+        deposit.priceSourceDetailJa,
+        deposit.marketExchange,
+        deposit.marketPair,
+        deposit.adminNote,
+      ],
+    }),
+  );
+}
+
+function filterWithdrawals(items: WithdrawalOrder[], filter: HistoryFilter) {
+  return items.filter((withdrawal) =>
+    matchHistoryFilter(filter, {
+      status: withdrawal.status,
+      asset: withdrawal.asset,
+      createdAt: withdrawal.createdAt,
+      values: [
+        withdrawal.businessNo,
+        withdrawal.asset,
+        withdrawal.network,
+        withdrawal.amount,
+        withdrawal.destinationType,
+        withdrawal.destinationText,
+        withdrawal.note,
+        withdrawal.priceSourceLabelJa,
+        withdrawal.priceSourceDetailJa,
+        withdrawal.marketExchange,
+        withdrawal.marketPair,
+        withdrawal.adminNote,
+      ],
+    }),
+  );
+}
+
+function filterOrders(items: SimulationOrder[], filter: HistoryFilter) {
+  return items.filter((order) =>
+    matchHistoryFilter(filter, {
+      status: order.status,
+      asset: order.baseAsset ?? '',
+      createdAt: order.createdAt,
+      values: [
+        order.businessNo,
+        order.opportunityId,
+        order.status,
+        order.executionVenue,
+        order.marketSource,
+        order.buyExchange,
+        order.sellExchange,
+        order.baseAsset,
+        order.principalJpy,
+        order.profitJpy,
+        order.failureReasonJa,
+        order.failureDetailJa,
+        order.adminNoteJa,
+        order.aiSummaryJa,
+        order.disclosureJa,
+      ],
+    }),
+  );
+}
+
+function matchHistoryFilter(
+  filter: HistoryFilter,
+  record: { status: string; asset: string; createdAt: string; values: Array<string | number | undefined> },
+) {
+  if (filter.status !== 'all' && record.status !== filter.status) {
+    return false;
+  }
+  if (filter.asset !== 'all' && record.asset !== filter.asset) {
+    return false;
+  }
+  const dateKey = tokyoDateKey(record.createdAt);
+  if (filter.fromDate && dateKey < filter.fromDate) {
+    return false;
+  }
+  if (filter.toDate && dateKey > filter.toDate) {
+    return false;
+  }
+  const query = normalizeSearch(filter.query);
+  if (!query) {
+    return true;
+  }
+  return normalizeSearch(record.values.filter(Boolean).join(' ')).includes(query);
+}
+
+function normalizeSearch(value: string) {
+  return value.trim().toLowerCase();
+}
+
 function balanceOf(balances: AssetBalance[], asset: Asset) {
   return balances.find((balance) => balance.asset === asset) ?? { asset, available: '0', frozen: '0', balanceVersion: 0 };
 }
@@ -3242,6 +3668,37 @@ function formatTime(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
+}
+
+function formatFullTime(value: string) {
+  return new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date(value));
+}
+
+function tokyoDateKey(value: string) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(value));
+}
+
+function adminRealtimeLabel(state: AdminRealtimeState) {
+  const labels: Record<AdminRealtimeState, string> = {
+    offline: '未连接',
+    connecting: '连接中',
+    live: '实时推送中',
+    fallback: '轮询兜底中',
+  };
+  return labels[state];
 }
 
 function kycLabelJa(status: CustomerProfile['kycStatus']) {

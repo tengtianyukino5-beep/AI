@@ -76,6 +76,8 @@ interface DepositOrder {
   proofText: string;
   proofImageName?: string;
   proofImageDataUrl?: string;
+  adminNote?: string;
+  reviewedAt?: string;
   unitPriceJpy?: string;
   valuationJpy?: string;
   priceSource?: 'real_api' | 'fallback' | 'manual' | 'mixed';
@@ -111,6 +113,7 @@ interface WithdrawalOrder {
   network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum' | 'Bank';
   destinationText: string;
   note?: string;
+  adminNote?: string;
   unitPriceJpy?: string;
   valuationJpy?: string;
   priceSource?: 'real_api' | 'fallback' | 'manual' | 'mixed';
@@ -211,6 +214,7 @@ interface SimulationOrder {
   balanceVersionAfter: number;
   aiSummaryJa: string;
   disclosureJa: string;
+  adminNoteJa?: string;
   failureReasonJa?: string;
   failureDetailJa?: string;
   createdAt: string;
@@ -623,7 +627,7 @@ export class AppService {
       id,
       name,
       category,
-      intervalSeconds: 2,
+      intervalSeconds: 1,
       minIntervalSeconds: 0.001,
       maxIntervalSeconds: 30,
       enabled: true,
@@ -830,6 +834,7 @@ export class AppService {
       proofText: input.proofText || 'transfer proof',
       proofImageName: input.proofImageName,
       proofImageDataUrl: this.compactDataUrl(input.proofImageDataUrl),
+      adminNote: '管理部門の確認待ちです。承認後、対象資産の残高へ反映されます。',
       unitPriceJpy: String(pricing.unitPriceJpy),
       valuationJpy: String(pricing.valuationJpy),
       priceSource: pricing.priceSource,
@@ -885,6 +890,7 @@ export class AppService {
       network,
       destinationText,
       note: input.note,
+      adminNote: '管理部門の出金審査待ちです。承認後、出金処理が完了します。',
       unitPriceJpy: String(pricing.unitPriceJpy),
       valuationJpy: String(pricing.valuationJpy),
       priceSource: pricing.priceSource,
@@ -1130,6 +1136,8 @@ export class AppService {
       return this.adminState();
     }
     deposit.status = 'approved';
+    deposit.reviewedAt = this.now();
+    deposit.adminNote = '入金確認が完了し、対象資産の残高へ反映しました。';
     this.adjustBalance(deposit.customerId, deposit.asset, Number(deposit.amount), 'deposit', '入金', '入金确认');
     this.audit('deposit.approve', operator, 'deposit', deposit.id, `${deposit.asset} ${deposit.amount}`);
     return this.adminState();
@@ -1141,6 +1149,8 @@ export class AppService {
       throw new Error('入金记录不存在');
     }
     deposit.status = 'rejected';
+    deposit.reviewedAt = this.now();
+    deposit.adminNote = '提出内容または送金証明を確認できなかったため、入金申請は差戻しとなりました。';
     this.audit('deposit.reject', operator, 'deposit', deposit.id, '入金驳回');
     return this.adminState();
   }
@@ -1165,6 +1175,7 @@ export class AppService {
     balance.balanceVersion += 1;
     withdrawal.status = 'approved';
     withdrawal.completedAt = this.now();
+    withdrawal.adminNote = '出金審査が完了し、指定された出金先への処理を完了しました。';
     this.ledger.unshift({
       id: this.id('led'),
       businessNo: withdrawal.businessNo,
@@ -1194,6 +1205,8 @@ export class AppService {
     }
     const balance = this.balance(withdrawal.customerId, withdrawal.asset);
     withdrawal.status = 'rejected';
+    withdrawal.completedAt = this.now();
+    withdrawal.adminNote = '出金申請は差戻しとなりました。申請金額は残高から控除されていません。';
     this.ledger.unshift({
       id: this.id('led'),
       businessNo: withdrawal.businessNo,
@@ -1823,6 +1836,10 @@ export class AppService {
         balanceVersionAfter: execution.status === 'settled' ? beforeVersion + 1 : beforeVersion,
         aiSummaryJa: opportunity.aiSummaryJa,
         disclosureJa: execution.disclosureJa,
+        adminNoteJa:
+          execution.status === 'settled'
+            ? 'AI実行結果を確認済みです。純利益のみJPY残高へ反映しました。'
+            : 'AI条件の再照合により利益反映なしとして記録しました。',
         failureReasonJa: execution.failureReasonJa,
         failureDetailJa: execution.failureDetailJa,
         createdAt: now,
@@ -1932,6 +1949,7 @@ export class AppService {
       aiSummaryJa: opportunity.aiSummaryJa,
       disclosureJa:
         '内部テスト実行レイヤーで検証しました。外部取引所への実注文は送信していません。条件変動により利益はJPY残高へ反映していません。',
+      adminNoteJa: 'AI条件の再照合により、今回は利益反映なしとして記録しました。',
       failureReasonJa: opportunity.missedReasonJa,
       failureDetailJa: opportunity.missedDetailJa,
       createdAt: now,

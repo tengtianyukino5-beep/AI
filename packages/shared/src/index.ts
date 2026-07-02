@@ -82,6 +82,8 @@ export interface DepositOrder {
   proofText: string;
   proofImageName?: string;
   proofImageDataUrl?: string;
+  adminNote?: string;
+  reviewedAt?: string;
   unitPriceJpy?: string;
   valuationJpy?: string;
   priceSource?: 'real_api' | 'fallback' | 'manual' | 'mixed';
@@ -117,6 +119,7 @@ export interface WithdrawalOrder {
   network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum' | 'Bank';
   destinationText: string;
   note?: string;
+  adminNote?: string;
   unitPriceJpy?: string;
   valuationJpy?: string;
   priceSource?: 'real_api' | 'fallback' | 'manual' | 'mixed';
@@ -217,6 +220,7 @@ export interface SimulationOrder {
   balanceVersionAfter: number;
   aiSummaryJa: string;
   disclosureJa: string;
+  adminNoteJa?: string;
   failureReasonJa?: string;
   failureDetailJa?: string;
   createdAt: string;

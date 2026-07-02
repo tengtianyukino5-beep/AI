@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, MessageEvent, Param, Patch, Post, Query, Sse } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { interval, map, Observable, startWith } from 'rxjs';
 import { AppService } from './app.service';
 
 type Asset = 'JPY' | 'USDT' | 'BTC' | 'ETH';
@@ -127,6 +128,18 @@ export class AppController {
       this.admin(authorization);
       return this.appService.adminState();
     });
+  }
+
+  @Sse('admin/state/stream')
+  adminStateStream(@Query('token') token?: string): Observable<MessageEvent> {
+    this.appService.adminByToken(token ?? '');
+    return interval(1500).pipe(
+      startWith(0),
+      map(() => ({
+        type: 'admin-state',
+        data: this.appService.adminState(),
+      })),
+    );
   }
 
   @Post('admin/kyc/:customerId/approve')
