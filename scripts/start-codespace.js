@@ -3,12 +3,22 @@ const http = require('node:http');
 
 const isWindows = process.platform === 'win32';
 const pnpm = process.env.npm_execpath || (isWindows ? 'pnpm.cmd' : 'pnpm');
-const configuredPort = Number(process.env.API_PORT || process.env.PORT || 8080);
-const port = Number.isFinite(configuredPort) && configuredPort > 0 ? configuredPort : 8080;
+const configuredPort = Number(process.env.API_PORT || process.env.PORT || 3000);
+const port = Number.isFinite(configuredPort) && configuredPort > 0 ? configuredPort : 3000;
+const compatibilityPorts = (process.env.COMPATIBILITY_PORTS || '8080,3000,3001,5173')
+  .split(',')
+  .map((value) => Number(value.trim()))
+  .filter((value) => Number.isInteger(value) && value > 0 && value < 65536);
+const listenPorts = Array.from(new Set([port, ...compatibilityPorts]));
 const codespaceName = process.env.CODESPACE_NAME;
 const forwardingDomain = process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN;
-const externalBaseUrl =
-  codespaceName && forwardingDomain ? `https://${codespaceName}-${port}.${forwardingDomain}` : undefined;
+const externalUrls =
+  codespaceName && forwardingDomain
+    ? listenPorts.map((listenPort) => ({
+        port: listenPort,
+        url: `https://${codespaceName}-${listenPort}.${forwardingDomain}`,
+      }))
+    : [];
 
 function run(name, args, env = {}) {
   const result = spawnSync(pnpm, args, {
@@ -106,22 +116,33 @@ function startApp(name, args, env = {}) {
     process.exit(code ?? 0);
   });
 
-  waitForWebServer(port)
-    .then(() => {
-      console.log('');
-      console.log(`Local self-check passed: http://localhost:${port}/ returned the web app.`);
-      if (externalBaseUrl) {
-        console.log(`Open customer frontend: ${externalBaseUrl}/`);
-        console.log(`Open admin backend:    ${externalBaseUrl}/admin`);
+  Promise.all(
+    listenPorts.map((listenPort) =>
+      waitForWebServer(listenPort)
+        .then(() => ({ port: listenPort, ok: true, reason: '' }))
+        .catch((error) => ({ port: listenPort, ok: false, reason: error instanceof Error ? error.message : String(error) })),
+    ),
+  ).then((results) => {
+    const passed = results.filter((result) => result.ok);
+    const failed = results.filter((result) => !result.ok);
+    console.log('');
+    if (passed.length) {
+      console.log(`Local self-check passed on ports: ${passed.map((result) => result.port).join(', ')}`);
+      if (externalUrls.length) {
+        const recommended = externalUrls.find((item) => item.port === port) ?? externalUrls[0];
+        console.log(`Open customer frontend: ${recommended.url}/`);
+        console.log(`Open admin backend:    ${recommended.url}/admin`);
+        console.log('Alternative Codespaces URLs:');
+        for (const item of externalUrls) {
+          console.log(`- ${item.port}: ${item.url}/`);
+        }
       }
-      console.log('');
-    })
-    .catch((error) => {
-      console.error('');
-      console.error(`Local self-check failed on port ${port}: ${error.message}`);
-      console.error('The source server did not return the web app. Check the logs above before opening Codespaces ports.');
-      console.error('');
-    });
+    }
+    if (failed.length) {
+      console.error(`Local self-check failed on ports: ${failed.map((result) => `${result.port} (${result.reason})`).join(', ')}`);
+    }
+    console.log('');
+  });
 
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, () => {
@@ -135,10 +156,10 @@ console.log('Single Nest server mode.');
 console.log(`Customer frontend: http://localhost:${port}/`);
 console.log(`Admin backend UI:  http://localhost:${port}/admin`);
 console.log(`API health:        http://localhost:${port}/api/v1/health`);
-if (externalBaseUrl) {
+if (externalUrls.length) {
   console.log('');
-  console.log(`Codespaces customer URL: ${externalBaseUrl}/`);
-  console.log(`Codespaces admin URL:    ${externalBaseUrl}/admin`);
+  console.log(`Recommended Codespaces customer URL: ${externalUrls.find((item) => item.port === port)?.url ?? externalUrls[0].url}/`);
+  console.log(`Recommended Codespaces admin URL:    ${(externalUrls.find((item) => item.port === port) ?? externalUrls[0]).url}/admin`);
 }
 console.log('');
 
@@ -152,4 +173,7 @@ console.log('Keep this terminal open. If the $ prompt comes back, the website is
 console.log('When you see "Nest application successfully started", open the Codespaces URLs above.');
 console.log('');
 
-startApp(`app:${port}`, ['--filter', '@twodays/api', 'start'], { API_PORT: String(port) });
+startApp(`app:${port}`, ['--filter', '@twodays/api', 'start'], {
+  API_PORT: String(port),
+  COMPATIBILITY_PORTS: listenPorts.join(','),
+});
