@@ -1406,6 +1406,7 @@ function AiPage(props: {
   const orderProfitJpy = props.dashboard.orders.reduce((sum, order) => sum + Number(order.profitJpy || 0), 0);
   const latestOrderAt = latestRecordTime(props.dashboard.orders);
   const filteredOrders = filterOrders(props.dashboard.orders, orderFilter);
+  const noOpportunityMessage = opportunityEmptyStateText(props.dashboard);
   const missedPager =
     props.dashboard.missedOpportunities.length > missedPageSize ? (
       <PaginationControls
@@ -1555,7 +1556,7 @@ function AiPage(props: {
             <span>本日の利用回数は完了しました。市場シグナルは監視表示のみ更新され、東京時間の翌日から実行できます。</span>
           </div>
         ) : null}
-        {props.dashboard.opportunities.length === 0 ? <EmptyState text={props.dashboard.autoAiRuntime.stage === 'settled' ? '直近のAI裁定は処理済みです。次の市場シグナルを監視しています。' : '現在利用可能な裁定機会はありません。'} /> : null}
+        {props.dashboard.opportunities.length === 0 ? <EmptyState text={noOpportunityMessage} /> : null}
         {props.dashboard.opportunities.map((opportunity) => (
           <article className="opportunity-card" key={opportunity.id}>
             <div>
@@ -2321,6 +2322,8 @@ function AdminKyc(props: {
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
   refresh: (token?: string) => Promise<AdminState>;
 }) {
+  const submittedCustomers = props.state.customers.filter((customer) => customer.kycStatus !== 'not_submitted');
+
   async function action(customerId: string, type: 'approve' | 'reject') {
     const result = await props.run(
       () => props.call<AdminState>(`/admin/kyc/${customerId}/${type}`, { method: 'POST' }, props.token),
@@ -2336,7 +2339,8 @@ function AdminKyc(props: {
         <ShieldCheck size={22} />
       </div>
       <div className="admin-list">
-        {props.state.customers.map((customer) => (
+        {submittedCustomers.length === 0 ? <EmptyState text="客户提交本人确认资料后，会显示在这里。" /> : null}
+        {submittedCustomers.map((customer) => (
           <article className="admin-row" key={customer.id}>
             <div>
               <strong>{customer.email}</strong>
@@ -3001,7 +3005,7 @@ function AdminRules(props: {
         </div>
         <div className="rule-note">
           <strong>采样秒数规则</strong>
-          <p>0.001 秒代表几乎同步，系统不会触发裁定机会；1 秒及以上代表存在采样窗口，前台会稳定出现可判断的 AI 裁定机会。每个交易所可单独设置。</p>
+          <p>低于 0.01 秒代表几乎同步，系统不会触发裁定机会；0.01 秒及以上会稳定出现可判断的 AI 裁定机会。每个交易所可单独设置。</p>
         </div>
         <div className="admin-list exchange-admin-list">
           {props.state.exchanges.map((exchange) => (
@@ -3641,6 +3645,29 @@ function adminVipLimit(state: AdminState, level: VipLevel) {
 function aiPowerScore(dashboard: DashboardData) {
   const rule = vipRule(dashboard);
   return rule.aiPower;
+}
+
+function opportunityEmptyStateText(dashboard: DashboardData) {
+  if (dashboard.customer.kycStatus !== 'approved') {
+    return '本人確認が完了すると、AI裁定機会を確認できます。';
+  }
+  if (dashboard.todayLimit <= 0) {
+    return '本日の利用上限が0回に設定されています。VIP設定を確認してください。';
+  }
+  if (dashboard.todayUsed >= dashboard.todayLimit) {
+    return '本日の利用回数は完了しました。東京時間の翌日から再度利用できます。';
+  }
+  const jpyBalance = Number(balanceOf(dashboard.balances, 'JPY').available);
+  if (!Number.isFinite(jpyBalance) || jpyBalance < 10000) {
+    return `JPY利用可能残高が不足しています。現在 ${formatJpy(jpyBalance)}、AI裁定には最低 ${formatJpy(10000)} が必要です。`;
+  }
+  if (dashboard.marketScanner.slowestIntervalSeconds < dashboard.marketScanner.opportunityThresholdSeconds) {
+    return `取引所APIの検出秒数が ${dashboard.marketScanner.opportunityThresholdSeconds}秒未満のため、裁定機会は監視のみです。`;
+  }
+  if (dashboard.autoAiRuntime.stage === 'settled') {
+    return '直近のAI裁定は処理済みです。次の市場シグナルを監視しています。';
+  }
+  return '市場シグナルを監視しています。条件が成立すると裁定機会が表示されます。';
 }
 
 function rotatingSignalTicker(tickers: MarketTicker[]) {

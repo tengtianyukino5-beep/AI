@@ -471,6 +471,7 @@ const arbitrageFeeRate = 0.0015;
 const arbitrageSlippageRate = 0.001;
 const arbitrageRiskBufferRate = 0.0005;
 const defaultSuccessRatePercent = 90;
+const opportunityThresholdSeconds = 0.01;
 
 @Injectable()
 export class AppService {
@@ -1110,10 +1111,6 @@ export class AppService {
     const customer = this.mustCustomer(customerId);
     customer.kycStatus = 'approved';
     customer.vipLevel = customer.vipLevel || 'VIP0';
-    if (!customer.campaignRewardPosted) {
-      this.adjustBalance(customer.id, 'JPY', 10000, 'operation_reward', 'キャンペーン報酬', '运营奖励 / 注册体验金额');
-      customer.campaignRewardPosted = true;
-    }
     this.postEligibleInviteRewards(customer);
     this.audit('kyc.approve', operator, 'customer', customer.id, 'KYC 通过，自动激活 VIP0');
     return this.adminState();
@@ -1552,7 +1549,7 @@ export class AppService {
     }
     const enabled = this.enabledExchanges();
     const slowestInterval = enabled.reduce((max, exchange) => Math.max(max, exchange.intervalSeconds), 0);
-    if (slowestInterval < 1) {
+    if (slowestInterval < opportunityThresholdSeconds) {
       this.opportunities
         .filter((item) => item.customerId === customer.id && item.status === 'available')
         .forEach((item) => {
@@ -1565,12 +1562,15 @@ export class AppService {
       (item) => item.customerId === customer.id && item.businessDateTokyo === today && item.status === 'available',
     );
     const remainingDaily = Math.max(0, this.effectiveDailyLimit(customer) - this.todayAttemptCount(customer));
-    const visibleSlots = remainingDaily > 0 ? Math.min(remainingDaily, customer.autoAiEnabled ? 3 : 2) : 2;
+    const visibleSlots = remainingDaily > 0 ? Math.min(remainingDaily, customer.autoAiEnabled ? 5 : 3) : 0;
     const needed = visibleSlots - existing.length;
     const rankedSignals = this.opportunitySignals(marketTickers);
     const seedOffset = this.opportunitySeed(customer);
     for (let i = 0; i < needed; i += 1) {
       const signal = rankedSignals[(seedOffset + i) % Math.max(1, rankedSignals.length)];
+      if (!signal) {
+        return;
+      }
       const buy = signal.buy;
       const sell = signal.sell;
       const principal = this.arbitragePrincipalJpy(customer);
@@ -1579,7 +1579,11 @@ export class AppService {
       }
       const quote = this.buildOpportunityQuote(signal, principal, slowestInterval, seedOffset + i);
       if (quote.netProfitJpy <= 0) {
-        continue;
+        const retryQuote = this.buildOpportunityQuote(signal, principal, Math.max(1.5, slowestInterval), seedOffset + i + marketAssets.length);
+        if (retryQuote.netProfitJpy <= 0) {
+          continue;
+        }
+        Object.assign(quote, retryQuote);
       }
       const confidence = Math.max(82, Math.min(98, 87 + Math.round(quote.spreadPercent * 5) - i));
       const liquidity = `${Math.max(84, Math.min(99, 88 + Math.round(quote.spreadPercent * 4) - i))}/100`;
@@ -1626,7 +1630,7 @@ export class AppService {
     const active = this.opportunities.filter((item) => item.customerId === customer.id && item.status === 'available');
     const enabled = this.enabledExchanges();
     const slowestInterval = enabled.reduce((max, exchange) => Math.max(max, exchange.intervalSeconds), 0);
-    if (slowestInterval < 1) {
+    if (slowestInterval < opportunityThresholdSeconds) {
       active.forEach((opportunity) => {
         opportunity.status = 'expired';
       });
@@ -2022,10 +2026,15 @@ export class AppService {
   ) {
     const baseBuy = Number(signal.buyTicker?.askJpy) || this.assetUnitPriceJpy(this.pairAsset(signal.pair));
     const observedSpread = Math.max(0, signal.spreadPercent);
-    const intervalSpread = slowestIntervalSeconds < 1 ? 0 : Math.min(1.35, 0.48 + slowestIntervalSeconds * 0.12);
+    const intervalSpread =
+      slowestIntervalSeconds < opportunityThresholdSeconds ? 0 : Math.min(1.35, 0.62 + slowestIntervalSeconds * 0.16);
     const marketSpread = Math.max(observedSpread * 0.35, intervalSpread);
     const wave = Math.sin(tick / 7 + index) * 0.055 + Math.cos(tick / 11 + index * 0.3) * 0.035;
-    const spreadPercent = this.clampNumber(marketSpread + wave + index * 0.03, 0.05, 1.15);
+    const spreadPercent = this.clampNumber(
+      marketSpread + wave + index * 0.03,
+      slowestIntervalSeconds < opportunityThresholdSeconds ? 0.05 : 0.62,
+      1.15,
+    );
     const buyPriceJpy = Math.max(0.0001, baseBuy);
     const sellPriceJpy = Math.max(buyPriceJpy, buyPriceJpy * (1 + spreadPercent / 100));
     const quantity = principalJpy / buyPriceJpy;
@@ -2068,7 +2077,7 @@ export class AppService {
       enabledExchangeCount: enabled.length,
       fastestIntervalSeconds,
       slowestIntervalSeconds,
-      opportunityThresholdSeconds: 1,
+      opportunityThresholdSeconds,
       activeOpportunityCount,
       signalState: customer.kycStatus !== 'approved' ? 'locked' : activeOpportunityCount > 0 ? 'opportunity' : 'scanning',
       dominantPair: dominant?.pair ?? 'BTC/JPY',
