@@ -25,9 +25,53 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api-docs', app, document);
 
-  const configuredPort = Number(process.env.API_PORT ?? process.env.PORT ?? 8080);
-  const port = Number.isFinite(configuredPort) && configuredPort > 0 ? configuredPort : 8080;
-  await app.listen(port, '0.0.0.0');
+  await app.init();
+
+  const ports = getListenPorts();
+  const activePorts: number[] = [];
+
+  for (const port of ports) {
+    try {
+      await listenOnPort(app.getHttpAdapter().getInstance(), port);
+      activePorts.push(port);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Port ${port} was not started: ${message}`);
+    }
+  }
+
+  if (activePorts.length === 0) {
+    throw new Error(`No web port could be started. Tried: ${ports.join(', ')}`);
+  }
+
+  console.log(`AI Arbitrage Web listening on ports: ${activePorts.join(', ')}`);
+}
+
+function getListenPorts() {
+  const primaryPort = toPort(process.env.API_PORT ?? process.env.PORT, 8080) ?? 8080;
+  const compatibilityPorts = (process.env.COMPATIBILITY_PORTS ?? '3000,3001,5173')
+    .split(',')
+    .map((value) => toPort(value.trim()))
+    .filter((port): port is number => typeof port === 'number');
+
+  return Array.from(new Set([primaryPort, ...compatibilityPorts]));
+}
+
+function toPort(value: string | number | undefined, fallback?: number) {
+  const port = Number(value);
+  if (Number.isInteger(port) && port > 0 && port < 65536) {
+    return port;
+  }
+  return fallback;
+}
+
+function listenOnPort(server: { listen: (...args: unknown[]) => unknown }, port: number) {
+  return new Promise<void>((resolve, reject) => {
+    const listener = server.listen(port, '0.0.0.0', () => resolve()) as {
+      once: (event: string, callback: (error: Error) => void) => void;
+    };
+    listener.once('error', reject);
+  });
 }
 
 void bootstrap();
