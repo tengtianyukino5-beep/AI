@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { AppModule } from './app.module';
 
@@ -38,7 +38,6 @@ void bootstrap();
 function serveWebApp(app: {
   getHttpAdapter: () => {
     getInstance: () => {
-      get: (path: string | RegExp | Array<string | RegExp>, handler: unknown) => void;
       use: (handler: unknown) => void;
     };
   };
@@ -67,7 +66,12 @@ function serveWebApp(app: {
 
   const sendWebApp = (
     request: { method?: string; url?: string },
-    response: { setHeader: (key: string, value: string) => void; status?: (code: number) => unknown; sendFile: (path: string) => void },
+    response: {
+      setHeader: (key: string, value: string) => void;
+      status?: (code: number) => { send?: (body: Buffer | string) => void; end?: () => void };
+      send?: (body: Buffer | string) => void;
+      end?: () => void;
+    },
     next?: () => void,
   ) => {
     const method = request.method ?? 'GET';
@@ -83,12 +87,25 @@ function serveWebApp(app: {
     const safePath = filePath.startsWith(webRoot) && existsSync(filePath) && statSync(filePath).isFile() ? filePath : join(webRoot, 'index.html');
 
     response.setHeader('Cache-Control', 'no-cache');
+    response.setHeader('X-AI-Arbitrage-Web', 'served');
     response.setHeader('Content-Type', mimeTypes[extname(safePath)] ?? 'application/octet-stream');
-    response.status?.(200);
-    response.sendFile(safePath);
+    const status = response.status?.(200);
+    if (method === 'HEAD') {
+      if (status?.end) {
+        status.end();
+        return;
+      }
+      response.end?.();
+      return;
+    }
+    const body = readFileSync(safePath);
+    if (status?.send) {
+      status.send(body);
+      return;
+    }
+    response.send?.(body);
   };
 
-  server.get(['/', '/admin', /^\/admin\/.*$/], sendWebApp);
   server.use(sendWebApp);
 }
 
