@@ -1762,7 +1762,6 @@ function AiPage(props: {
             <span>完了時刻</span>
             <strong>{formatTime(lastOrder.settledAt ?? lastOrder.createdAt)}</strong>
           </div>
-          <p>{lastOrder.disclosureJa}</p>
         </div>
       ) : null}
       <div className="operations-history-block">
@@ -3273,7 +3272,6 @@ function OrderDetailPanel({ order, onClose }: { order: SimulationOrder; onClose:
           { label: '売却注文ID', value: order.sellOrderId ?? '-', wide: true },
           { label: '管理メモ', value: order.adminNoteJa ?? (order.status === 'settled' ? '残高反映済みです。' : '利益反映なしとして記録されています。'), wide: true },
           { label: 'AI分析摘要', value: order.aiSummaryJa, wide: true },
-          { label: '実行説明', value: order.failureDetailJa ?? order.disclosureJa, wide: true },
         ]}
       />
     </CustomerDetailPanel>
@@ -3511,7 +3509,6 @@ function filterOrders(items: SimulationOrder[], filter: HistoryFilter) {
         order.failureDetailJa,
         order.adminNoteJa,
         order.aiSummaryJa,
-        order.disclosureJa,
       ],
     }),
   );
@@ -3809,7 +3806,7 @@ function latestRecordTime(items: Array<{ createdAt: string; completedAt?: string
 
 function executionModeJa(mode?: DashboardData['tradingRuntime']['executionMode']) {
   const labels: Record<DashboardData['tradingRuntime']['executionMode'], string> = {
-    internal_test: '内部AI実行',
+    internal_test: 'AI注文処理',
     live_exchange_disabled: 'ライブ発注未設定',
     live_exchange: 'ライブ取引所発注',
   };
@@ -3818,7 +3815,7 @@ function executionModeJa(mode?: DashboardData['tradingRuntime']['executionMode']
 
 function executionModeZh(mode?: DashboardData['tradingRuntime']['executionMode']) {
   const labels: Record<DashboardData['tradingRuntime']['executionMode'], string> = {
-    internal_test: '内部测试执行',
+    internal_test: 'AI订单处理',
     live_exchange_disabled: '真实下单未启用',
     live_exchange: '真实交易所下单',
   };

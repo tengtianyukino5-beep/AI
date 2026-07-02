@@ -986,18 +986,31 @@ button:disabled {
 
 .history-filter-bar {
   display: grid;
-  grid-template-columns: minmax(220px, 1.6fr) repeat(4, minmax(130px, 1fr)) minmax(150px, 0.8fr);
+  grid-template-columns: minmax(180px, 1.4fr) repeat(auto-fit, minmax(118px, 1fr));
   gap: 10px;
   align-items: end;
+  max-width: 100%;
+  overflow: hidden;
   border: 1px solid rgba(16, 63, 69, 0.12);
   border-radius: 8px;
   background: rgba(247, 251, 248, 0.92);
   padding: 12px;
 }
 
+.history-filter-bar label,
+.history-filter-result {
+  min-width: 0;
+}
+
+.history-filter-bar input,
+.history-filter-bar select {
+  min-width: 0;
+}
+
 .history-filter-result {
   display: grid;
   gap: 5px;
+  align-self: stretch;
 }
 
 .history-filter-result span {

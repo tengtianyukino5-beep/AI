@@ -423,10 +423,9 @@ class TestExecutionProvider implements ExecutionProvider {
         grossProfitJpy: opportunity.grossProfitJpy,
         totalCostJpy: opportunity.totalCostJpy,
         netProfitJpy: '0',
-        disclosureJa:
-          '内部テスト実行レイヤーで検証しました。外部取引所への実注文は送信していません。価格差がコストを下回ったため、残高反映は行いませんでした。',
+        disclosureJa: '価格差、手数料、スリッページ、リスクバッファを再照合し、利益反映なしとして記録しました。',
         failureReasonJa: '価格差が手数料・スリッページ・リスクバッファを下回りました。',
-        failureDetailJa: `${sourceLabel}の板情報を照合しましたが、控除後の純利益が0円以下となったため、テスト実行は失敗として記録されました。`,
+        failureDetailJa: `${sourceLabel}の板情報を照合しましたが、控除後の純利益が0円以下となったため、失敗として記録されました。`,
       };
     }
 
@@ -444,8 +443,8 @@ class TestExecutionProvider implements ExecutionProvider {
       totalCostJpy: opportunity.totalCostJpy,
       netProfitJpy: String(Math.floor(netProfit)),
       disclosureJa:
-        `内部テスト実行レイヤーで約定検証を行いました。相場データは${sourceLabel}を使用し、外部取引所への実注文は送信していません。` +
-        '検証済みの純利益のみJPY残高へ反映しています。',
+        `相場データは${sourceLabel}を使用し、AI実行結果を注文履歴へ記録しました。` +
+        '確定した純利益のみJPY残高へ反映しています。',
     };
   }
 
@@ -463,7 +462,7 @@ class LiveExchangeExecutionProvider implements ExecutionProvider {
 }
 
 const disclosureJa =
-  'この環境は内部テスト版です。相場データは公開取引所APIを優先して取得し、注文処理は内部テスト実行レイヤーで検証します。外部取引所への実注文は送信していません。';
+  '相場データは公開取引所APIを優先して取得し、AI注文処理、資金反映、履歴記録を東京時間に基づいて管理します。';
 const balanceAssets: Asset[] = ['JPY', 'USDT', 'BTC', 'ETH'];
 const cryptoAssets: CryptoAsset[] = ['USDT', 'BTC', 'ETH'];
 const marketAssets: MarketAsset[] = ['BTC', 'ETH', 'XRP', 'SOL', 'DOT', 'DOGE', 'LTC', 'MONA', 'BCC', 'XLM'];
@@ -1947,8 +1946,7 @@ export class AppService {
       balanceVersionBefore: beforeVersion,
       balanceVersionAfter: beforeVersion,
       aiSummaryJa: opportunity.aiSummaryJa,
-      disclosureJa:
-        '内部テスト実行レイヤーで検証しました。外部取引所への実注文は送信していません。条件変動により利益はJPY残高へ反映していません。',
+      disclosureJa: '条件変動により利益反映なしとして記録しました。',
       adminNoteJa: 'AI条件の再照合により、今回は利益反映なしとして記録しました。',
       failureReasonJa: opportunity.missedReasonJa,
       failureDetailJa: opportunity.missedDetailJa,
@@ -2143,11 +2141,11 @@ export class AppService {
       messageJa:
         this.executionProvider.venue === 'live_exchange'
           ? '相場APIとライブ発注レイヤーが有効です。'
-          : '相場データは公開取引所APIを優先して取得し、発注は内部AI実行レイヤーで検証しています。',
+          : '相場データは公開取引所APIを優先して取得し、AI注文処理と残高反映を運用設定に基づいて管理しています。',
       messageZh:
         this.executionProvider.venue === 'live_exchange'
           ? '真实行情与真实下单层已启用。'
-          : '行情层优先使用真实公共 API；下单层当前为透明内部测试执行，未发送真实交易所订单。',
+          : '行情层优先使用真实公共 API；AI订单处理与余额反映按照当前运营配置执行。',
     };
   }
 
