@@ -53,17 +53,19 @@ https://github.com/tengtianyukino5-beep/AI
 3. Click `Codespaces`.
 4. Click `Create codespace on main`.
 5. Wait for the dev container to finish.
-6. Start the API in one terminal:
+6. Start the whole website in one terminal:
 
 ```bash
-pnpm --filter @twodays/api dev
+pnpm codespace
 ```
 
-7. Open a second terminal and start the web app:
+7. Wait until the terminal shows:
 
-```bash
-pnpm --filter @twodays/web dev
+```text
+Nest application successfully started
 ```
+
+8. Open the forwarded `8080` port. The same URL serves the customer frontend, `/admin`, `/api/v1/health`, and `/api-docs`.
 
 ## If Codespaces Opens In Recovery Mode
 
@@ -92,9 +94,7 @@ It only starts Node/pnpm first. PostgreSQL and Redis can be added later after th
 
 | Port | Service |
 | ---: | --- |
-| 3000 | Web app |
-| 3001 | API |
-| 3001/api-docs | Swagger |
+| 8080 | Web app, management backend UI, API, Swagger |
 | 5432 | PostgreSQL |
 | 6379 | Redis |
 

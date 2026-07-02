@@ -2,7 +2,8 @@ const { spawnSync } = require('node:child_process');
 
 const isWindows = process.platform === 'win32';
 const pnpm = process.env.npm_execpath || (isWindows ? 'pnpm.cmd' : 'pnpm');
-const port = Number(process.env.API_PORT || process.env.PORT || 3000);
+const configuredPort = Number(process.env.API_PORT || process.env.PORT || 8080);
+const port = Number.isFinite(configuredPort) && configuredPort > 0 ? configuredPort : 8080;
 const codespaceName = process.env.CODESPACE_NAME;
 const forwardingDomain = process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN;
 const externalBaseUrl =

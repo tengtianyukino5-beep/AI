@@ -44,7 +44,7 @@ Run the API in terminal 1:
 pnpm codespace
 ```
 
-This command builds the shared package, builds the web app, builds the API, and then starts one single server on port 3000. The same Codespaces URL serves the customer frontend, the management backend UI, and the API.
+This command builds the shared package, builds the web app, builds the API, and then starts one single server on port 8080. The same Codespaces URL serves the customer frontend, the management backend UI, and the API.
 
 Build everything:
 
@@ -62,11 +62,11 @@ pnpm typecheck
 
 | Service | URL |
 | --- | --- |
-| App | http://127.0.0.1:3000 |
-| API Health | http://127.0.0.1:3000/api/v1/health |
-| Swagger | http://127.0.0.1:3000/api-docs |
+| App | http://127.0.0.1:8080 |
+| API Health | http://127.0.0.1:8080/api/v1/health |
+| Swagger | http://127.0.0.1:8080/api-docs |
 
-In GitHub Codespaces, open the forwarded `3000` port once. Use the root path for the customer frontend and `/admin` for the management backend.
+In GitHub Codespaces, open the forwarded `8080` port once. Use the root path for the customer frontend and `/admin` for the management backend.
 
 ## Demo Accounts
 
