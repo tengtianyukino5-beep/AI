@@ -91,7 +91,7 @@ type AdminState = {
   };
 };
 
-type CustomerPage = 'dashboard' | 'kyc' | 'deposit' | 'withdraw' | 'convert' | 'ai' | 'vip' | 'invite' | 'ledger';
+type CustomerPage = 'dashboard' | 'kyc' | 'deposit' | 'withdraw' | 'convert' | 'funds' | 'ai' | 'vip' | 'invite' | 'ledger' | 'my';
 type AdminPage = 'overview' | 'customers' | 'kyc' | 'deposits' | 'withdrawals' | 'balances' | 'rules' | 'audit';
 type VipDraftKey = 'dailyLimit' | 'minBalanceJpy' | 'upgradeBalanceJpy' | 'highProfitProbability' | 'aiPower';
 type AdminRealtimeState = 'offline' | 'connecting' | 'live' | 'fallback';
@@ -105,14 +105,10 @@ type HistoryFilter = {
 
 const customerNav: Array<{ key: CustomerPage; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'dashboard', label: 'ホーム', icon: LayoutDashboard },
-  { key: 'kyc', label: '本人確認', icon: ShieldCheck },
-  { key: 'deposit', label: '入金', icon: Wallet },
-  { key: 'withdraw', label: '出金', icon: Banknote },
-  { key: 'convert', label: '変換', icon: ArrowRightLeft },
   { key: 'ai', label: 'AI裁定', icon: Bot },
-  { key: 'vip', label: 'VIP', icon: BadgeCheck },
-  { key: 'invite', label: '招待', icon: Gift },
+  { key: 'funds', label: '入出金', icon: Wallet },
   { key: 'ledger', label: '履歴', icon: History },
+  { key: 'my', label: 'マイページ', icon: UserRound },
 ];
 const adminNav: Array<{ key: AdminPage; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'overview', label: '总览', icon: LayoutDashboard },
@@ -354,6 +350,8 @@ function CustomerApp(props: {
     return <CustomerAuth call={props.call} onLogin={props.onLogin} run={props.run} />;
   }
 
+  const navigate = (page: CustomerPage) => props.setPage(page);
+
   return (
     <section className="layout">
       <aside className="sidebar customer-sidebar">
@@ -384,11 +382,14 @@ function CustomerApp(props: {
         {props.page === 'deposit' ? <DepositPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'withdraw' ? <WithdrawalPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'convert' ? <ConversionPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
+        {props.page === 'funds' ? <FundsPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} navigate={navigate} /> : null}
         {props.page === 'ai' ? <AiPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'vip' ? <VipPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'invite' ? <InvitePage token={props.token} call={props.call} run={props.run} /> : null}
         {props.page === 'ledger' ? <LedgerPage ledger={props.dashboard.ledger} /> : null}
+        {props.page === 'my' ? <MyPage dashboard={props.dashboard} navigate={navigate} onLogout={props.onLogout} /> : null}
       </div>
+      <CustomerBottomNav page={props.page} setPage={navigate} />
     </section>
   );
 }
@@ -551,6 +552,25 @@ function CustomerHeader({ dashboard }: { dashboard: DashboardData }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function CustomerBottomNav({ page, setPage }: { page: CustomerPage; setPage: (page: CustomerPage) => void }) {
+  return (
+    <nav className="customer-bottom-nav" aria-label="顧客メインナビゲーション">
+      {customerNav.map((item) => {
+        const Icon = item.icon;
+        const active = item.key === 'funds' ? ['funds', 'deposit', 'withdraw', 'convert'].includes(page) : item.key === page;
+        return (
+          <button key={item.key} className={active ? 'active' : ''} type="button" onClick={() => setPage(item.key)}>
+            <span className="bottom-nav-orbit">
+              <Icon size={20} />
+            </span>
+            <span>{item.label}</span>
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -1416,6 +1436,100 @@ function ConversionPage(props: {
   );
 }
 
+function FundsPage(props: {
+  dashboard: DashboardData;
+  token: string;
+  call: <T>(path: string, options?: RequestInit, token?: string) => Promise<T>;
+  run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
+  refresh: (token?: string) => Promise<DashboardData>;
+  navigate: (page: CustomerPage) => void;
+}) {
+  const [mode, setMode] = useState<'deposit' | 'withdraw' | 'convert'>('deposit');
+  const jpy = balanceOf(props.dashboard.balances, 'JPY');
+  const cryptoTotalJpy = props.dashboard.balances
+    .filter((balance) => balance.asset !== 'JPY')
+    .reduce((sum, balance) => sum + estimatedAssetJpy(balance.asset, balance.available, props.dashboard.marketTickers), 0);
+  const latestDeposit = props.dashboard.deposits[0];
+  const latestWithdrawal = props.dashboard.withdrawals[0];
+  const latestLedger = props.dashboard.ledger[0];
+
+  return (
+    <section className="funds-workspace">
+      <div className="funds-hero panel">
+        <div>
+          <p className="eyebrow">Assets</p>
+          <h2>入出金・交換</h2>
+          <p>入金、出金、暗号資産からJPYへの交換を一つの画面で管理できます。</p>
+        </div>
+        <div className="funds-balance-grid">
+          <div>
+            <span>JPY利用可能</span>
+            <strong>{formatJpy(jpy.available)}</strong>
+          </div>
+          <div>
+            <span>暗号資産評価額</span>
+            <strong>{formatJpy(cryptoTotalJpy)}</strong>
+          </div>
+          <div>
+            <span>入金確認待ち</span>
+            <strong>{countByStatus(props.dashboard.deposits, 'pending')}</strong>
+          </div>
+          <div>
+            <span>出金審査中</span>
+            <strong>{countByStatus(props.dashboard.withdrawals, 'pending')}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="mobile-action-grid">
+        {[
+          { key: 'deposit', label: '入金', icon: Wallet, note: latestDeposit ? depositStatusJa(latestDeposit.status) : '申請作成' },
+          { key: 'withdraw', label: '出金', icon: Banknote, note: latestWithdrawal ? withdrawalStatusJa(latestWithdrawal.status) : '申請作成' },
+          { key: 'convert', label: '交換', icon: ArrowRightLeft, note: 'JPYへ変換' },
+          { key: 'ledger', label: '記録', icon: History, note: latestLedger ? formatTime(latestLedger.createdAt) : '履歴確認' },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.key}
+              className={mode === item.key ? 'mobile-action active' : 'mobile-action'}
+              type="button"
+              onClick={() => {
+                if (item.key === 'ledger') {
+                  props.navigate('ledger');
+                  return;
+                }
+                setMode(item.key as 'deposit' | 'withdraw' | 'convert');
+              }}
+            >
+              <Icon size={20} />
+              <strong>{item.label}</strong>
+              <span>{item.note}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="funds-mode-shell">
+        <div className="segmented funds-segmented" role="tablist" aria-label="入出金操作">
+          <button className={mode === 'deposit' ? 'active' : ''} type="button" onClick={() => setMode('deposit')}>
+            入金
+          </button>
+          <button className={mode === 'withdraw' ? 'active' : ''} type="button" onClick={() => setMode('withdraw')}>
+            出金
+          </button>
+          <button className={mode === 'convert' ? 'active' : ''} type="button" onClick={() => setMode('convert')}>
+            交換
+          </button>
+        </div>
+        {mode === 'deposit' ? <DepositPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
+        {mode === 'withdraw' ? <WithdrawalPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
+        {mode === 'convert' ? <ConversionPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
+      </div>
+    </section>
+  );
+}
+
 function AiPage(props: {
   dashboard: DashboardData;
   token: string;
@@ -1971,6 +2085,114 @@ function InvitePage(props: {
       ) : (
         <EmptyState text="招待情報を読み込み中です。" />
       )}
+    </section>
+  );
+}
+
+function MyPage({
+  dashboard,
+  navigate,
+  onLogout,
+}: {
+  dashboard: DashboardData;
+  navigate: (page: CustomerPage) => void;
+  onLogout: () => void;
+}) {
+  const inviteUrl = `${window.location.origin}?invite=${dashboard.customer.inviteCode}`;
+  const latestLedger = dashboard.ledger[0];
+  const menuItems: Array<{ label: string; page: CustomerPage; icon: typeof Wallet; note: string }> = [
+    { label: '入金', page: 'deposit', icon: Wallet, note: '資産を入金' },
+    { label: '出金', page: 'withdraw', icon: Banknote, note: '出金申請' },
+    { label: '記録', page: 'ledger', icon: History, note: '履歴確認' },
+    { label: '招待コード', page: 'invite', icon: Gift, note: dashboard.customer.inviteCode },
+    { label: '本人確認', page: 'kyc', icon: ShieldCheck, note: kycLabelJa(dashboard.customer.kycStatus) },
+    { label: 'VIP', page: 'vip', icon: BadgeCheck, note: dashboard.customer.vipLevel },
+  ];
+
+  return (
+    <section className="my-page">
+      <div className="panel my-profile-card">
+        <div className="my-avatar-ring">
+          <UserRound size={32} />
+        </div>
+        <div>
+          <p className="eyebrow">My Page</p>
+          <h2>{dashboard.customer.name}</h2>
+          <p>{dashboard.customer.email}</p>
+          <div className="my-status-row">
+            <StatusBadge label={dashboard.customer.vipLevel} tone="success" />
+            <StatusBadge label={kycLabelJa(dashboard.customer.kycStatus)} tone={dashboard.customer.kycStatus === 'approved' ? 'success' : 'warning'} />
+            <StatusBadge label={`信用 ${dashboard.customer.creditScore}`} />
+          </div>
+        </div>
+      </div>
+
+      <div className="panel invite-card-mobile">
+        <div>
+          <p className="eyebrow">Invitation</p>
+          <h2>招待コード</h2>
+        </div>
+        <div className="invite-code-large">{dashboard.customer.inviteCode}</div>
+        <p>登録時にこのコードが使用されると、管理ルールに基づいて招待報酬が反映されます。</p>
+        <div className="row-actions">
+          <button className="secondary-button" type="button" onClick={() => void navigator.clipboard?.writeText(dashboard.customer.inviteCode)}>
+            コードをコピー
+          </button>
+          <button className="ghost-button" type="button" onClick={() => void navigator.clipboard?.writeText(inviteUrl)}>
+            URLをコピー
+          </button>
+        </div>
+      </div>
+
+      <div className="my-menu-grid">
+        {menuItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button className="my-menu-button" key={item.label} type="button" onClick={() => navigate(item.page)}>
+              <span>
+                <Icon size={24} />
+              </span>
+              <strong>{item.label}</strong>
+              <small>{item.note}</small>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="panel account-log-card">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Account Log</p>
+            <h2>アカウント記録</h2>
+          </div>
+          <History size={22} />
+        </div>
+        <div className="account-log-list">
+          <div>
+            <span>本人確認</span>
+            <strong>{kycLabelJa(dashboard.customer.kycStatus)}</strong>
+            <small>{dashboard.customer.kycDocumentFrontName ?? '運転免許証提出待ち'}</small>
+          </div>
+          <div>
+            <span>VIP</span>
+            <strong>{dashboard.customer.vipLevel}</strong>
+            <small>{dashboard.todayUsed} / {dashboard.todayLimit} 本日利用</small>
+          </div>
+          <div>
+            <span>AI裁定</span>
+            <strong>{dashboard.customer.autoAiEnabled ? '稼働中' : '停止中'}</strong>
+            <small>{dashboard.autoAiRuntime.nextRunHintJa}</small>
+          </div>
+          <div>
+            <span>最新記録</span>
+            <strong>{latestLedger?.titleJa ?? '記録なし'}</strong>
+            <small>{latestLedger ? formatTime(latestLedger.createdAt) : '操作後に表示されます'}</small>
+          </div>
+        </div>
+        <button className="ghost-button full" type="button" onClick={onLogout}>
+          ログアウト
+        </button>
+      </div>
     </section>
   );
 }
