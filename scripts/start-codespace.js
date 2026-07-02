@@ -71,11 +71,18 @@ run('api:build', ['--filter', '@twodays/api', 'build']);
 
 const api = start(`api:${port}`, ['--filter', '@twodays/api', 'start'], { API_PORT: String(port) });
 
-void waitForHealth(port).then((ready) => {
+void waitForHealth(port).then(async (ready) => {
   if (!ready) {
     console.error('');
     console.error(`Server did not answer on http://localhost:${port}/api/v1/health within 30 seconds.`);
     console.error('Check the API log above for the real error, then stop this terminal with Ctrl+C and run pnpm codespace again.');
+    return;
+  }
+  const frontendReady = await waitForFrontend(port);
+  if (!frontendReady) {
+    console.error('');
+    console.error(`API is running, but the frontend did not answer on http://localhost:${port}/ within 30 seconds.`);
+    console.error('This usually means apps/web/dist was not found by the API server. Stop this terminal with Ctrl+C and run pnpm codespace again.');
     return;
   }
   console.log('');
@@ -97,10 +104,18 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 function waitForHealth(portNumber) {
+  return waitForHttpOk(`http://127.0.0.1:${portNumber}/api/v1/health`);
+}
+
+function waitForFrontend(portNumber) {
+  return waitForHttpOk(`http://127.0.0.1:${portNumber}/`);
+}
+
+function waitForHttpOk(url) {
   const deadline = Date.now() + 30000;
   return new Promise((resolve) => {
     const check = () => {
-      const request = http.get(`http://127.0.0.1:${portNumber}/api/v1/health`, (response) => {
+      const request = http.get(url, (response) => {
         response.resume();
         if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
           resolve(true);

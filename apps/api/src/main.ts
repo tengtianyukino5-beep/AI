@@ -35,9 +35,17 @@ async function bootstrap() {
 
 void bootstrap();
 
-function serveWebApp(app: { getHttpAdapter: () => { getInstance: () => { use: (handler: unknown) => void } } }) {
+function serveWebApp(app: {
+  getHttpAdapter: () => {
+    getInstance: () => {
+      get: (path: string | RegExp | Array<string | RegExp>, handler: unknown) => void;
+      use: (handler: unknown) => void;
+    };
+  };
+}) {
   const webRoot = findWebDist();
   if (!webRoot) {
+    console.warn('Web dist was not found. Build apps/web before starting the API server.');
     return;
   }
 
@@ -55,11 +63,17 @@ function serveWebApp(app: { getHttpAdapter: () => { getInstance: () => { use: (h
   };
 
   const server = app.getHttpAdapter().getInstance();
-  server.use((request: { method?: string; url?: string }, response: { setHeader: (key: string, value: string) => void; sendFile: (path: string) => void }, next: () => void) => {
+  console.log(`Serving web app from ${webRoot}`);
+
+  const sendWebApp = (
+    request: { method?: string; url?: string },
+    response: { setHeader: (key: string, value: string) => void; status?: (code: number) => unknown; sendFile: (path: string) => void },
+    next?: () => void,
+  ) => {
     const method = request.method ?? 'GET';
     const url = request.url ?? '/';
     if (!['GET', 'HEAD'].includes(method) || url.startsWith('/api/') || url.startsWith('/api-docs')) {
-      next();
+      next?.();
       return;
     }
 
@@ -70,8 +84,12 @@ function serveWebApp(app: { getHttpAdapter: () => { getInstance: () => { use: (h
 
     response.setHeader('Cache-Control', 'no-cache');
     response.setHeader('Content-Type', mimeTypes[extname(safePath)] ?? 'application/octet-stream');
+    response.status?.(200);
     response.sendFile(safePath);
-  });
+  };
+
+  server.get(['/', '/admin', /^\/admin\/.*$/], sendWebApp);
+  server.use(sendWebApp);
 }
 
 function findWebDist() {
