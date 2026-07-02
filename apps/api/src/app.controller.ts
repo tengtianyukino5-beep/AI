@@ -52,7 +52,7 @@ export class AppController {
   @Post('customer/kyc')
   submitKyc(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: { fullName: string; documentNo: string; documentFrontName?: string },
+    @Body() body: { fullName: string; documentNo: string; documentFrontName?: string; kycDocumentFrontDataUrl?: string },
   ) {
     return this.safe(() => this.appService.submitKyc(this.customer(authorization), body));
   }

@@ -45,6 +45,7 @@ export interface CustomerProfile {
   aiRunning: boolean;
   inviteCode: string;
   kycDocumentFrontName?: string;
+  kycDocumentFrontDataUrl?: string;
   withdrawalBankAccount?: string;
   withdrawalUsdtTrc20Address?: string;
   withdrawalUsdtErc20Address?: string;

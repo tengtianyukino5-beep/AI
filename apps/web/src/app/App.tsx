@@ -682,6 +682,7 @@ function KycPage(props: {
   const [fullName, setFullName] = useState(props.dashboard.customer.name);
   const [documentNo, setDocumentNo] = useState('');
   const [licenseFile, setLicenseFile] = useState('');
+  const [licensePreview, setLicensePreview] = useState('');
   const approved = props.dashboard.customer.kycStatus === 'approved';
 
   async function submit(event: FormEvent) {
@@ -694,7 +695,7 @@ function KycPage(props: {
       () =>
         props.call<CustomerProfile>(
           '/customer/kyc',
-          { method: 'POST', body: JSON.stringify({ fullName, documentNo, documentFrontName: licenseFile }) },
+          { method: 'POST', body: JSON.stringify({ fullName, documentNo, documentFrontName: licenseFile, kycDocumentFrontDataUrl: licensePreview }) },
           props.token,
         ),
       '本人確認書類を提出しました。審査完了までお待ちください。',
@@ -745,10 +746,24 @@ function KycPage(props: {
           <input
             accept="image/jpeg,image/png,image/webp"
             type="file"
-            onChange={(event) => setLicenseFile(event.target.files?.[0]?.name ?? '')}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              setLicenseFile(file?.name ?? '');
+              setLicensePreview('');
+              if (file) {
+                void compactImage(file)
+                  .then(setLicensePreview)
+                  .catch((error) => props.run(() => Promise.reject(error)));
+              }
+            }}
           />
         </label>
         {licenseFile ? <p className="upload-note">選択済み：{licenseFile}</p> : <p className="upload-note">jpg / png / webp、文字が鮮明な画像を選択してください。</p>}
+        {licensePreview ? (
+          <div className="proof-preview has-image kyc-preview">
+            <img alt="運転免許証 表面写真" src={licensePreview} />
+          </div>
+        ) : null}
         <button className="primary-button" type="submit">
           本人確認を提出
         </button>
@@ -2346,6 +2361,14 @@ function AdminKyc(props: {
               <strong>{customer.email}</strong>
               <p>{customer.name} / {customer.kycStatus === 'approved' ? '已通过' : customer.kycStatus === 'pending' ? '待审核' : customer.kycStatus}</p>
               <p>驾驶证正面：{customer.kycDocumentFrontName || '未上传'}</p>
+              {customer.kycDocumentFrontDataUrl ? (
+                <a className="kyc-proof-thumb" href={customer.kycDocumentFrontDataUrl} rel="noreferrer" target="_blank">
+                  <img alt={`${customer.email} 驾驶证正面`} src={customer.kycDocumentFrontDataUrl} />
+                  <span>点击查看驾驶证凭证</span>
+                </a>
+              ) : (
+                <small className="warning-text">暂无驾驶证图片凭证</small>
+              )}
             </div>
             <div className="row-actions">
               {customer.kycStatus === 'approved' ? (

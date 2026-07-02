@@ -39,6 +39,7 @@ interface CustomerProfile {
   aiRunning: boolean;
   inviteCode: string;
   kycDocumentFrontName?: string;
+  kycDocumentFrontDataUrl?: string;
   withdrawalBankAccount?: string;
   withdrawalUsdtTrc20Address?: string;
   withdrawalUsdtErc20Address?: string;
@@ -779,11 +780,18 @@ export class AppService {
     };
   }
 
-  submitKyc(customer: CustomerRecord, input: { fullName: string; documentNo: string; documentFrontName?: string }) {
+  submitKyc(customer: CustomerRecord, input: { fullName: string; documentNo: string; documentFrontName?: string; kycDocumentFrontDataUrl?: string }) {
     customer.name = input.fullName || customer.name;
     customer.kycStatus = 'pending';
     customer.kycDocumentFrontName = input.documentFrontName;
-    this.audit('kyc.submit', customer.email, 'customer', customer.id, `KYC 提交：${input.documentNo || '未填写'} / ${input.documentFrontName || '未上传'}`);
+    customer.kycDocumentFrontDataUrl = input.kycDocumentFrontDataUrl;
+    this.audit(
+      'kyc.submit',
+      customer.email,
+      'customer',
+      customer.id,
+      `KYC 提交：${input.documentNo || '未填写'} / ${input.documentFrontName || '未上传'} / ${input.kycDocumentFrontDataUrl ? '凭证已上传' : '无凭证图片'}`,
+    );
     return this.publicCustomer(customer);
   }
 
