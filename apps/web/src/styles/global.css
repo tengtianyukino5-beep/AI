@@ -626,8 +626,7 @@ button:disabled {
 .customer-shell .funds-balance-grid strong,
 .customer-shell .mobile-action strong,
 .customer-shell .my-menu-button strong,
-.customer-shell .account-log-list strong,
-.customer-shell .invite-code-large {
+.customer-shell .account-log-list strong {
   color: #f4f9ff;
 }
 
@@ -645,8 +644,7 @@ button:disabled {
     linear-gradient(180deg, rgba(13, 46, 58, 0.96), rgba(8, 22, 37, 0.94));
 }
 
-.customer-shell .my-avatar-ring,
-.customer-shell .invite-code-large {
+.customer-shell .my-avatar-ring {
   border-color: rgba(182, 140, 255, 0.36);
   background: rgba(182, 140, 255, 0.12);
 }
@@ -1715,7 +1713,9 @@ select:focus {
 }
 
 .funds-workspace,
-.my-page {
+.my-page,
+.ledger-workspace,
+.deposit-workspace {
   display: grid;
   gap: 16px;
 }
@@ -1771,6 +1771,7 @@ select:focus {
 }
 
 .mobile-action-grid,
+.funds-action-grid,
 .my-menu-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1795,6 +1796,144 @@ select:focus {
 .funds-mode-shell {
   display: grid;
   gap: 12px;
+}
+
+.funds-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.address-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.address-card-grid.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.address-copy-card,
+.address-mini-card,
+.funds-recent-list button,
+.deposit-address-hero,
+.ledger-vip-grid div,
+.invite-card-compact {
+  border: 1px solid rgba(16, 63, 69, 0.12);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 250, 247, 0.9)),
+    #ffffff;
+  padding: 12px;
+}
+
+.address-copy-card,
+.address-mini-card,
+.funds-recent-list button,
+.deposit-address-hero {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+
+.address-copy-card code,
+.deposit-address-hero code {
+  min-width: 0;
+  border-radius: 7px;
+  background: rgba(15, 118, 110, 0.08);
+  color: #103f45;
+  padding: 9px;
+  font-size: 12px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.address-copy-card span,
+.address-copy-card small,
+.address-mini-card span,
+.address-mini-card small,
+.funds-recent-list span,
+.funds-recent-list small,
+.deposit-address-hero span,
+.deposit-address-hero small,
+.ledger-vip-grid span,
+.ledger-vip-grid small {
+  color: #60736a;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.address-copy-card strong,
+.address-mini-card strong,
+.funds-recent-list strong,
+.deposit-address-hero strong,
+.ledger-vip-grid strong {
+  color: #142b2b;
+}
+
+.address-mini-card {
+  border: 1px solid rgba(15, 118, 110, 0.16);
+}
+
+.address-mini-card.active {
+  border-color: #0f766e;
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.18);
+}
+
+.funds-recent-list {
+  display: grid;
+  gap: 10px;
+}
+
+.deposit-address-selector {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.deposit-form-grid {
+  align-items: start;
+}
+
+.ledger-vip-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ledger-vip-grid div {
+  display: grid;
+  gap: 5px;
+}
+
+.invite-card-compact {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.invite-card-compact h2,
+.invite-card-compact p {
+  margin: 0;
+}
+
+.invite-mini-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.1);
+  color: #0f766e;
+}
+
+.customer-mobile-toolbar,
+.mobile-records {
+  display: none;
 }
 
 .funds-segmented {
@@ -1824,23 +1963,6 @@ select:focus {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
-}
-
-.invite-card-mobile {
-  display: grid;
-  gap: 12px;
-}
-
-.invite-code-large {
-  width: fit-content;
-  border: 1px solid rgba(15, 118, 110, 0.2);
-  border-radius: 8px;
-  background: rgba(15, 118, 110, 0.08);
-  color: #103f45;
-  padding: 12px 16px;
-  font-size: 30px;
-  font-weight: 950;
-  letter-spacing: 0;
 }
 
 .account-log-list {
@@ -2847,7 +2969,11 @@ tr:last-child td {
   }
 
   .app-shell {
-    padding: 8px;
+    padding: 8px 8px 112px;
+  }
+
+  .customer-shell {
+    padding-bottom: 118px;
   }
 
   .topbar {
@@ -2862,7 +2988,7 @@ tr:last-child td {
     position: fixed;
     top: auto;
     right: 8px;
-    bottom: 10px;
+    bottom: 92px;
     left: 8px;
     z-index: 90;
     width: auto;
@@ -2939,7 +3065,7 @@ tr:last-child td {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 3px;
-    min-height: 66px;
+    min-height: 68px;
     border: 1px solid rgba(80, 129, 181, 0.34);
     border-radius: 18px;
     background:
@@ -2958,7 +3084,7 @@ tr:last-child td {
     justify-items: center;
     gap: 2px;
     min-width: 0;
-    min-height: 52px;
+    min-height: 54px;
     border: 0;
     border-radius: 14px;
     background: transparent;
@@ -3025,6 +3151,39 @@ tr:last-child td {
   .customer-bottom-nav button.active .bottom-nav-orbit::before {
     opacity: 0.7;
     box-shadow: 0 0 16px rgba(24, 210, 125, 0.5);
+  }
+
+  .customer-mobile-toolbar {
+    position: sticky;
+    top: 8px;
+    z-index: 28;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border: 1px solid rgba(80, 129, 181, 0.28);
+    border-radius: 14px;
+    background: rgba(8, 19, 31, 0.94);
+    color: #e9f4ff;
+    padding: 8px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+  }
+
+  .customer-mobile-toolbar .ghost-button {
+    min-height: 38px;
+    border-color: rgba(255, 255, 255, 0.18);
+    color: #e9f4ff;
+    padding: 0 11px;
+  }
+
+  .customer-mobile-toolbar strong {
+    min-width: 0;
+    color: #ffffff;
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .panel,
@@ -3253,6 +3412,7 @@ tr:last-child td {
   }
 
   .mobile-action-grid,
+  .funds-action-grid,
   .my-menu-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 7px;
@@ -3285,10 +3445,63 @@ tr:last-child td {
     height: 62px;
   }
 
-  .invite-code-large {
+  .funds-dashboard-grid,
+  .deposit-form-grid,
+  .conversion-workspace,
+  .withdrawal-workspace,
+  .ledger-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .funds-dashboard-grid {
+    gap: 10px;
+  }
+
+  .address-card-grid,
+  .address-card-grid.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .address-copy-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .address-copy-card code {
+    grid-column: 1 / -1;
+  }
+
+  .deposit-address-selector,
+  .ledger-vip-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .deposit-address-page {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .deposit-address-hero {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .deposit-address-hero .secondary-button {
     width: 100%;
-    font-size: 24px;
-    text-align: center;
+  }
+
+  .deposit-guide {
+    display: none;
+  }
+
+  .invite-card-compact {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .invite-card-compact .row-actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .table-wrap {
@@ -3305,11 +3518,88 @@ tr:last-child td {
     min-width: 720px;
   }
 
+  .customer-shell .deposit-history-panel .paged-table,
+  .customer-shell .withdrawal-workspace .paged-table,
+  .customer-shell #ai-orders .paged-table,
+  .customer-shell .ledger-workspace .paged-table {
+    display: none;
+  }
+
+  .mobile-records {
+    display: grid;
+    gap: 9px;
+  }
+
+  .mobile-record-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .mobile-record-card {
+    display: grid;
+    gap: 9px;
+    width: 100%;
+    border: 1px solid rgba(80, 129, 181, 0.2);
+    border-radius: 14px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(242, 249, 246, 0.92)),
+      #ffffff;
+    color: #142b2b;
+    padding: 11px;
+    text-align: left;
+  }
+
+  .mobile-record-card > div:first-child,
+  .mobile-record-main {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .mobile-record-main {
+    align-items: baseline;
+  }
+
+  .mobile-record-main strong {
+    color: #103f45;
+    font-size: 16px;
+  }
+
+  .mobile-record-main span,
+  .mobile-record-card small {
+    color: #60736a;
+    font-size: 11px;
+    font-weight: 850;
+  }
+
+  .mobile-record-card.static {
+    border-style: solid;
+  }
+
+  .customer-shell .pagination-row {
+    padding: 8px;
+  }
+
+  .customer-shell .pagination-row span,
+  .customer-shell .pagination-row strong {
+    font-size: 11px;
+  }
+
+  .customer-shell .pagination-row .inline-actions {
+    gap: 5px;
+  }
+
+  .customer-shell .pagination-row button {
+    min-height: 34px;
+    padding: 0 9px;
+  }
+
   .customer-detail-panel {
     position: fixed;
-    inset: 8px;
+    inset: 8px 8px 86px;
     z-index: 20;
-    max-height: calc(100vh - 16px);
+    max-height: calc(100vh - 94px);
     overflow: auto;
     padding: 12px;
   }

@@ -6,8 +6,10 @@ import {
   Banknote,
   Bot,
   CheckCircle2,
+  ChevronLeft,
   Clock3,
   Coins,
+  Copy,
   Gauge,
   Gift,
   History,
@@ -346,11 +348,19 @@ function CustomerApp(props: {
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
   refresh: (token?: string) => Promise<DashboardData>;
 }) {
+  const [lastPage, setLastPage] = useState<CustomerPage>('dashboard');
+
   if (!props.token || !props.dashboard) {
     return <CustomerAuth call={props.call} onLogin={props.onLogin} run={props.run} />;
   }
 
-  const navigate = (page: CustomerPage) => props.setPage(page);
+  const navigate = (page: CustomerPage) => {
+    if (page !== props.page) {
+      setLastPage(props.page);
+    }
+    props.setPage(page);
+  };
+  const backTarget = customerBackTarget(props.page, lastPage);
 
   return (
     <section className="layout">
@@ -363,8 +373,9 @@ function CustomerApp(props: {
         <nav className="side-nav">
           {customerNav.map((item) => {
             const Icon = item.icon;
+            const active = isCustomerNavActive(item.key, props.page);
             return (
-              <button key={item.key} className={props.page === item.key ? 'active' : ''} type="button" onClick={() => props.setPage(item.key)}>
+              <button key={item.key} className={active ? 'active' : ''} type="button" onClick={() => navigate(item.key)}>
                 <Icon size={18} />
                 <span>{item.label}</span>
               </button>
@@ -377,6 +388,7 @@ function CustomerApp(props: {
       </aside>
       <div className="content">
         <CustomerHeader dashboard={props.dashboard} />
+        <CustomerMobileToolbar page={props.page} onBack={() => navigate(backTarget)} />
         {props.page === 'dashboard' ? <CustomerDashboard dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'kyc' ? <KycPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'deposit' ? <DepositPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
@@ -386,7 +398,7 @@ function CustomerApp(props: {
         {props.page === 'ai' ? <AiPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'vip' ? <VipPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'invite' ? <InvitePage token={props.token} call={props.call} run={props.run} /> : null}
-        {props.page === 'ledger' ? <LedgerPage ledger={props.dashboard.ledger} /> : null}
+        {props.page === 'ledger' ? <LedgerPage dashboard={props.dashboard} navigate={navigate} /> : null}
         {props.page === 'my' ? <MyPage dashboard={props.dashboard} navigate={navigate} onLogout={props.onLogout} /> : null}
       </div>
       <CustomerBottomNav page={props.page} setPage={navigate} />
@@ -459,7 +471,7 @@ function CustomerAuth(props: {
         </div>
         <p className="eyebrow">AI裁定 Web</p>
         <h1>東京時間に基づくAI裁定アカウント</h1>
-        <p>AI分析、資産変換、VIPレベル、招待報酬、裁定履歴を一つの画面で確認できます。処理結果と残高はリアルタイムに反映されます。</p>
+        <p>AI分析、資産交換、VIPレベル、招待報酬、裁定履歴を一つの画面で確認できます。処理結果と残高はリアルタイムに反映されます。</p>
         <div className="disclosure">
           <ShieldCheck size={18} />
           <span>本人確認後にAI裁定機能をご利用いただけます。</span>
@@ -560,7 +572,7 @@ function CustomerBottomNav({ page, setPage }: { page: CustomerPage; setPage: (pa
     <nav className="customer-bottom-nav" aria-label="顧客メインナビゲーション">
       {customerNav.map((item) => {
         const Icon = item.icon;
-        const active = item.key === 'funds' ? ['funds', 'deposit', 'withdraw', 'convert'].includes(page) : item.key === page;
+        const active = isCustomerNavActive(item.key, page);
         return (
           <button key={item.key} className={active ? 'active' : ''} type="button" onClick={() => setPage(item.key)}>
             <span className="bottom-nav-orbit">
@@ -571,6 +583,22 @@ function CustomerBottomNav({ page, setPage }: { page: CustomerPage; setPage: (pa
         );
       })}
     </nav>
+  );
+}
+
+function CustomerMobileToolbar({ page, onBack }: { page: CustomerPage; onBack: () => void }) {
+  const mainPages: CustomerPage[] = ['dashboard', 'ai', 'funds', 'ledger', 'my'];
+  if (mainPages.includes(page)) {
+    return null;
+  }
+  return (
+    <div className="customer-mobile-toolbar">
+      <button className="ghost-button" type="button" onClick={onBack}>
+        <ChevronLeft size={18} />
+        戻る
+      </button>
+      <strong>{customerPageTitle(page)}</strong>
+    </div>
   );
 }
 
@@ -758,7 +786,7 @@ function KycPage(props: {
           <CheckCircle2 size={28} />
           <div>
             <strong>本人確認は承認済みです</strong>
-            <p>AI裁定、資産変換、VIPアップグレードをご利用いただけます。追加提出は必要ありません。</p>
+            <p>AI裁定、資産交換、VIPアップグレードをご利用いただけます。追加提出は必要ありません。</p>
           </div>
         </div>
       ) : (
@@ -830,6 +858,7 @@ function DepositPage(props: {
   const [selectedDeposit, setSelectedDeposit] = useState<DepositOrder | null>(null);
   const selectedNetwork = networkForAsset(asset, network);
   const depositAddress = depositAddressFor(props.dashboard.depositAddresses, asset, selectedNetwork);
+  const enabledAddresses = props.dashboard.depositAddresses.filter((address) => address.enabled);
   const depositTotalJpy = sumValuationJpy(props.dashboard.deposits);
   const latestDepositAt = latestRecordTime(props.dashboard.deposits);
   const filteredDeposits = filterDeposits(props.dashboard.deposits, historyFilter);
@@ -891,12 +920,88 @@ function DepositPage(props: {
   }
 
   return (
-    <section className="two-column">
+    <section className="deposit-workspace">
+      <section className="panel deposit-address-page">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Deposit Address</p>
+            <h2>入金アドレス</h2>
+          </div>
+          <Wallet size={22} />
+        </div>
+        <div className="deposit-address-selector">
+          <label>
+            資産
+            <select
+              value={asset}
+              onChange={(event) => {
+                const nextAsset = event.target.value as Exclude<Asset, 'JPY'>;
+                setAsset(nextAsset);
+                setNetwork(defaultNetworkForAsset(nextAsset));
+              }}
+            >
+              <option value="ETH">ETH</option>
+              <option value="BTC">BTC</option>
+              <option value="USDT">USDT</option>
+            </select>
+          </label>
+          <label>
+            ネットワーク
+            <select
+              value={networkForAsset(asset, network)}
+              onChange={(event) => setNetwork(event.target.value as typeof network)}
+            >
+              {asset === 'USDT' ? (
+                <>
+                  <option value="TRC-20">USDT TRC-20</option>
+                  <option value="ERC-20">USDT ERC-20</option>
+                </>
+              ) : asset === 'BTC' ? (
+                <option value="Bitcoin">Bitcoin</option>
+              ) : (
+                <option value="Ethereum">Ethereum</option>
+              )}
+            </select>
+          </label>
+        </div>
+        <div className="deposit-address-hero">
+          <div>
+            <span>選択中</span>
+            <strong>{asset} / {selectedNetwork}</strong>
+            <small>最低確認 {depositAddress ? `${depositAddress.minConfirmations} confirmations` : '-'}</small>
+          </div>
+          <code>{depositAddress?.address ?? '現在このネットワークの入金アドレスは準備中です。'}</code>
+          {depositAddress?.memo ? <p>メモ：{depositAddress.memo}</p> : null}
+          <button className="secondary-button" disabled={!depositAddress?.address} type="button" onClick={() => void copyToClipboard(depositAddress?.address ?? '')}>
+            <Copy size={16} />
+            アドレスをコピー
+          </button>
+        </div>
+        <div className="address-card-grid compact">
+          {enabledAddresses.map((address) => (
+            <button
+              className={address.asset === asset && address.network === selectedNetwork ? 'address-mini-card active' : 'address-mini-card'}
+              key={address.id}
+              type="button"
+              onClick={() => {
+                setAsset(address.asset);
+                setNetwork(address.network);
+              }}
+            >
+              <span>{address.asset}</span>
+              <strong>{address.network}</strong>
+              <small>{address.labelJa}</small>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="two-column deposit-form-grid">
       <form className="panel deposit-panel" onSubmit={submit}>
         <div className="panel-head">
           <div>
             <p className="eyebrow">入金</p>
-            <h2>USDT / BTC / ETH 入金</h2>
+            <h2>入金申請</h2>
           </div>
           <Wallet size={22} />
         </div>
@@ -987,7 +1092,7 @@ function DepositPage(props: {
           className="secondary-button full"
           disabled={!depositAddress?.address}
           type="button"
-          onClick={() => void navigator.clipboard?.writeText(depositAddress?.address ?? '')}
+          onClick={() => void copyToClipboard(depositAddress?.address ?? '')}
         >
           受取アドレスをコピー
         </button>
@@ -998,6 +1103,7 @@ function DepositPage(props: {
         </div>
         <p>入金申請後、管理部門の確認が完了すると対象資産の残高へ反映されます。証明写真が不鮮明な場合は再提出が必要です。</p>
       </aside>
+      </section>
       <section className="panel deposit-history-panel">
         <div className="panel-head">
           <div>
@@ -1026,6 +1132,24 @@ function DepositPage(props: {
           ]}
           totalCount={props.dashboard.deposits.length}
           onChange={setHistoryFilter}
+        />
+        <MobileRecordPager
+          className="mobile-records"
+          emptyText="入金申請履歴はまだありません。"
+          items={filteredDeposits}
+          renderItem={(deposit) => (
+            <button className="mobile-record-card" key={deposit.id} type="button" onClick={() => setSelectedDeposit(deposit)}>
+              <div>
+                <RecordCode primary={deposit.businessNo} secondary={deposit.network ?? '-'} />
+                <StatusBadge label={depositStatusJa(deposit.status)} tone={depositStatusTone(deposit.status)} />
+              </div>
+              <div className="mobile-record-main">
+                <strong>{deposit.asset} {deposit.amount}</strong>
+                <span>{deposit.valuationJpy ? formatJpy(deposit.valuationJpy) : '評価額確認中'}</span>
+              </div>
+              <small>{deposit.priceSourceLabelJa ?? priceSourceLabelJa(deposit.priceSource)} / {formatTime(deposit.createdAt)}</small>
+            </button>
+          )}
         />
         <PaginatedTable
           columns={['受付番号', '資産', 'ネットワーク', '数量', '申請時評価額', '価格ソース', '状態', '証明', '申請時刻', '詳細']}
@@ -1225,6 +1349,24 @@ function WithdrawalPage(props: {
           totalCount={props.dashboard.withdrawals.length}
           onChange={setHistoryFilter}
         />
+        <MobileRecordPager
+          className="mobile-records"
+          emptyText="出金履歴はまだありません。"
+          items={filteredWithdrawals}
+          renderItem={(withdrawal) => (
+            <button className="mobile-record-card" key={withdrawal.id} type="button" onClick={() => setSelectedWithdrawal(withdrawal)}>
+              <div>
+                <RecordCode primary={withdrawal.businessNo} secondary={withdrawal.destinationType === 'bank' ? '銀行口座' : withdrawal.network ?? 'ウォレット'} />
+                <StatusBadge label={withdrawalStatusJa(withdrawal.status)} tone={withdrawalStatusTone(withdrawal.status)} />
+              </div>
+              <div className="mobile-record-main">
+                <strong>{withdrawal.asset === 'JPY' ? formatJpy(withdrawal.amount) : `${withdrawal.amount} ${withdrawal.asset}`}</strong>
+                <span>{withdrawal.valuationJpy ? formatJpy(withdrawal.valuationJpy) : withdrawal.asset === 'JPY' ? formatJpy(withdrawal.amount) : '評価額確認中'}</span>
+              </div>
+              <small>{withdrawal.priceSourceLabelJa ?? priceSourceLabelJa(withdrawal.priceSource)} / {formatTime(withdrawal.createdAt)}</small>
+            </button>
+          )}
+        />
         <PaginatedTable
           columns={['受付番号', '資産', 'ネットワーク', '数量', '申請時評価額', '価格ソース', '出金先', '状態', '申請時刻', '詳細']}
           rows={filteredWithdrawals.map((withdrawal) => [
@@ -1273,7 +1415,7 @@ function ConversionPage(props: {
           { method: 'POST', body: JSON.stringify({ fromAsset, amount }) },
           props.token,
         ),
-      'レート見積もりを取得しました。',
+      '交換レートを確認しました。',
     );
     if (result) {
       setQuote(result);
@@ -1284,7 +1426,7 @@ function ConversionPage(props: {
     if (!quote) return;
     const result = await props.run(
       () => props.call<DashboardData>('/customer/conversions', { method: 'POST', body: JSON.stringify({ quoteId: quote.id }) }, props.token),
-      '変換が完了しました。',
+      '資産交換が完了しました。',
     );
     if (result) {
       setQuote(null);
@@ -1297,14 +1439,14 @@ function ConversionPage(props: {
       <form className="panel conversion-panel" onSubmit={createQuote}>
         <div className="panel-head">
           <div>
-            <p className="eyebrow">Conversion</p>
-            <h2>{fromAsset} を JPY へ変換</h2>
+            <p className="eyebrow">Asset Exchange</p>
+            <h2>{fromAsset} を JPY へ交換</h2>
           </div>
           <ArrowRightLeft size={22} />
         </div>
         <div className="pair-board">
           <div>
-            <span>変換ペア</span>
+            <span>交換ペア</span>
             <strong>{fromAsset} → JPY</strong>
           </div>
           <div>
@@ -1331,7 +1473,7 @@ function ConversionPage(props: {
           ))}
         </div>
         <label>
-          変換元資産
+          交換元資産
           <select value={fromAsset} onChange={(event) => { setFromAsset(event.target.value as Exclude<Asset, 'JPY'>); setQuote(null); }}>
             <option value="ETH">ETH</option>
             <option value="BTC">BTC</option>
@@ -1348,7 +1490,7 @@ function ConversionPage(props: {
           <small>概算 {formatJpy(estimatedAssetJpy(fromAsset, selectedBalance.available, props.dashboard.marketTickers))}</small>
         </div>
         <button className="primary-button" type="submit">
-          見積もり取得
+          レートを確認
         </button>
         <div className="flow-steps">
           <span className="active">1. 資産選択</span>
@@ -1356,7 +1498,7 @@ function ConversionPage(props: {
           <span>3. JPY反映</span>
         </div>
         <p className="conversion-note">
-          保有している暗号資産を選択し、数量を入力してJPY見積を取得してください。確定すると選択資産が減少し、JPY残高が増加します。
+          保有している暗号資産を選択し、数量を入力してJPY受取額を確認してください。確定すると選択資産が減少し、JPY残高へ反映されます。
         </p>
       </form>
       <div className="panel rate-panel">
@@ -1418,7 +1560,7 @@ function ConversionPage(props: {
               レートは見積取得時点の市場データに基づき、有効期限内のみ確定できます。
             </p>
             <button className="primary-button" type="button" onClick={execute}>
-              変換を確定
+              交換を実行
             </button>
           </div>
         ) : (
@@ -1426,9 +1568,9 @@ function ConversionPage(props: {
             <div className="quote-hero muted">
               <span>{fromAsset}/JPY</span>
               <strong>{amount || '0'} {fromAsset} ≒ {formatJpy(quoteEstimatedJpy)}</strong>
-              <small>見積もり取得後、公開API価格またはバックアップ価格のソースを表示します。</small>
+              <small>レート確認後、価格ソースと有効期限を表示します。</small>
             </div>
-            <p>選択した資産数量に対してJPY受取見積を作成します。見積もり取得後、有効期限内に確定してください。</p>
+            <p>選択した資産数量に対してJPY受取額を確認します。レート取得後、有効期限内に交換を実行してください。</p>
           </div>
         )}
       </div>
@@ -1444,7 +1586,6 @@ function FundsPage(props: {
   refresh: (token?: string) => Promise<DashboardData>;
   navigate: (page: CustomerPage) => void;
 }) {
-  const [mode, setMode] = useState<'deposit' | 'withdraw' | 'convert'>('deposit');
   const jpy = balanceOf(props.dashboard.balances, 'JPY');
   const cryptoTotalJpy = props.dashboard.balances
     .filter((balance) => balance.asset !== 'JPY')
@@ -1452,6 +1593,8 @@ function FundsPage(props: {
   const latestDeposit = props.dashboard.deposits[0];
   const latestWithdrawal = props.dashboard.withdrawals[0];
   const latestLedger = props.dashboard.ledger[0];
+  const latestOrder = props.dashboard.orders[0];
+  const enabledAddresses = props.dashboard.depositAddresses.filter((address) => address.enabled);
 
   return (
     <section className="funds-workspace">
@@ -1459,7 +1602,7 @@ function FundsPage(props: {
         <div>
           <p className="eyebrow">Assets</p>
           <h2>入出金・交換</h2>
-          <p>入金、出金、暗号資産からJPYへの交換を一つの画面で管理できます。</p>
+          <p>資産の入金先確認、入金申請、出金申請、JPY交換を必要な画面だけ開いて操作できます。</p>
         </div>
         <div className="funds-balance-grid">
           <div>
@@ -1481,26 +1624,20 @@ function FundsPage(props: {
         </div>
       </div>
 
-      <div className="mobile-action-grid">
+      <div className="funds-action-grid">
         {[
-          { key: 'deposit', label: '入金', icon: Wallet, note: latestDeposit ? depositStatusJa(latestDeposit.status) : '申請作成' },
+          { key: 'deposit', label: '入金', icon: Wallet, note: latestDeposit ? depositStatusJa(latestDeposit.status) : 'アドレス確認・申請' },
           { key: 'withdraw', label: '出金', icon: Banknote, note: latestWithdrawal ? withdrawalStatusJa(latestWithdrawal.status) : '申請作成' },
-          { key: 'convert', label: '交換', icon: ArrowRightLeft, note: 'JPYへ変換' },
-          { key: 'ledger', label: '記録', icon: History, note: latestLedger ? formatTime(latestLedger.createdAt) : '履歴確認' },
+          { key: 'convert', label: '資産交換', icon: ArrowRightLeft, note: '暗号資産をJPYへ' },
+          { key: 'ledger', label: '履歴', icon: History, note: latestLedger ? formatTime(latestLedger.createdAt) : '資金履歴' },
         ].map((item) => {
           const Icon = item.icon;
           return (
             <button
               key={item.key}
-              className={mode === item.key ? 'mobile-action active' : 'mobile-action'}
+              className="mobile-action"
               type="button"
-              onClick={() => {
-                if (item.key === 'ledger') {
-                  props.navigate('ledger');
-                  return;
-                }
-                setMode(item.key as 'deposit' | 'withdraw' | 'convert');
-              }}
+              onClick={() => props.navigate(item.key as CustomerPage)}
             >
               <Icon size={20} />
               <strong>{item.label}</strong>
@@ -1510,21 +1647,61 @@ function FundsPage(props: {
         })}
       </div>
 
-      <div className="funds-mode-shell">
-        <div className="segmented funds-segmented" role="tablist" aria-label="入出金操作">
-          <button className={mode === 'deposit' ? 'active' : ''} type="button" onClick={() => setMode('deposit')}>
-            入金
-          </button>
-          <button className={mode === 'withdraw' ? 'active' : ''} type="button" onClick={() => setMode('withdraw')}>
-            出金
-          </button>
-          <button className={mode === 'convert' ? 'active' : ''} type="button" onClick={() => setMode('convert')}>
-            交換
-          </button>
-        </div>
-        {mode === 'deposit' ? <DepositPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
-        {mode === 'withdraw' ? <WithdrawalPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
-        {mode === 'convert' ? <ConversionPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
+      <div className="funds-dashboard-grid">
+        <section className="panel funds-address-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Deposit Address</p>
+              <h2>入金アドレス</h2>
+            </div>
+            <button className="ghost-button" type="button" onClick={() => props.navigate('deposit')}>
+              詳細
+            </button>
+          </div>
+          <div className="address-card-grid">
+            {enabledAddresses.length === 0 ? <EmptyState text="入金アドレスは管理側の設定待ちです。" /> : null}
+            {enabledAddresses.slice(0, 4).map((address) => (
+              <article className="address-copy-card" key={address.id}>
+                <div>
+                  <span>{address.labelJa}</span>
+                  <strong>{address.asset} / {address.network}</strong>
+                </div>
+                <code>{address.address}</code>
+                <button className="secondary-button" type="button" onClick={() => void copyToClipboard(address.address)}>
+                  <Copy size={16} />
+                  コピー
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel funds-recent-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Recent Activity</p>
+              <h2>最新状況</h2>
+            </div>
+            <History size={22} />
+          </div>
+          <div className="funds-recent-list">
+            <button type="button" onClick={() => props.navigate('deposit')}>
+              <span>最新入金</span>
+              <strong>{latestDeposit ? latestDeposit.businessNo : '記録なし'}</strong>
+              <small>{latestDeposit ? `${latestDeposit.asset} ${latestDeposit.amount} / ${depositStatusJa(latestDeposit.status)}` : '入金申請を作成できます'}</small>
+            </button>
+            <button type="button" onClick={() => props.navigate('withdraw')}>
+              <span>最新出金</span>
+              <strong>{latestWithdrawal ? latestWithdrawal.businessNo : '記録なし'}</strong>
+              <small>{latestWithdrawal ? `${latestWithdrawal.asset} ${latestWithdrawal.amount} / ${withdrawalStatusJa(latestWithdrawal.status)}` : '出金申請を作成できます'}</small>
+            </button>
+            <button type="button" onClick={() => props.navigate('ai')}>
+              <span>最新AI注文</span>
+              <strong>{latestOrder ? latestOrder.businessNo : '記録なし'}</strong>
+              <small>{latestOrder ? `${orderStatusJa(latestOrder.status)} / ${formatJpy(latestOrder.profitJpy)}` : 'AI裁定後に表示されます'}</small>
+            </button>
+          </div>
+        </section>
       </div>
     </section>
   );
@@ -1953,6 +2130,27 @@ function AiPage(props: {
           totalCount={props.dashboard.orders.length}
           onChange={setOrderFilter}
         />
+        <MobileRecordPager
+          className="mobile-records"
+          emptyText="注文履歴はまだありません。"
+          items={filteredOrders}
+          renderItem={(order) => (
+            <button className="mobile-record-card" key={order.id} type="button" onClick={() => setSelectedOrder(order)}>
+              <div>
+                <RecordCode primary={order.businessNo} secondary={order.baseAsset ?? '-'} />
+                <StatusBadge
+                  label={order.status === 'settled' ? '成功' : order.status === 'failed' ? '失敗' : orderStatusJa(order.status)}
+                  tone={orderStatusTone(order.status)}
+                />
+              </div>
+              <div className="mobile-record-main">
+                <strong>{formatJpy(order.profitJpy)}</strong>
+                <span>{`${order.buyExchange ?? '-'} -> ${order.sellExchange ?? '-'}`}</span>
+              </div>
+              <small>{order.failureReasonJa ?? marketSourceJa(order.marketSource)} / {formatTime(order.createdAt)}</small>
+            </button>
+          )}
+        />
         <PaginatedTable
           columns={['業務番号', '結果', 'AI実行', '市場', '取引所', '資産', '元本', '粗利益', '控除', '純利益', '理由', '時刻', '詳細']}
           rows={filteredOrders.map((order) => [
@@ -2098,15 +2296,13 @@ function MyPage({
   navigate: (page: CustomerPage) => void;
   onLogout: () => void;
 }) {
-  const inviteUrl = `${window.location.origin}?invite=${dashboard.customer.inviteCode}`;
   const latestLedger = dashboard.ledger[0];
   const menuItems: Array<{ label: string; page: CustomerPage; icon: typeof Wallet; note: string }> = [
     { label: '入金', page: 'deposit', icon: Wallet, note: '資産を入金' },
     { label: '出金', page: 'withdraw', icon: Banknote, note: '出金申請' },
     { label: '記録', page: 'ledger', icon: History, note: '履歴確認' },
-    { label: '招待コード', page: 'invite', icon: Gift, note: dashboard.customer.inviteCode },
+    { label: '招待', page: 'invite', icon: Gift, note: 'コード確認' },
     { label: '本人確認', page: 'kyc', icon: ShieldCheck, note: kycLabelJa(dashboard.customer.kycStatus) },
-    { label: 'VIP', page: 'vip', icon: BadgeCheck, note: dashboard.customer.vipLevel },
   ];
 
   return (
@@ -2124,23 +2320,6 @@ function MyPage({
             <StatusBadge label={kycLabelJa(dashboard.customer.kycStatus)} tone={dashboard.customer.kycStatus === 'approved' ? 'success' : 'warning'} />
             <StatusBadge label={`信用 ${dashboard.customer.creditScore}`} />
           </div>
-        </div>
-      </div>
-
-      <div className="panel invite-card-mobile">
-        <div>
-          <p className="eyebrow">Invitation</p>
-          <h2>招待コード</h2>
-        </div>
-        <div className="invite-code-large">{dashboard.customer.inviteCode}</div>
-        <p>登録時にこのコードが使用されると、管理ルールに基づいて招待報酬が反映されます。</p>
-        <div className="row-actions">
-          <button className="secondary-button" type="button" onClick={() => void navigator.clipboard?.writeText(dashboard.customer.inviteCode)}>
-            コードをコピー
-          </button>
-          <button className="ghost-button" type="button" onClick={() => void navigator.clipboard?.writeText(inviteUrl)}>
-            URLをコピー
-          </button>
         </div>
       </div>
 
@@ -2174,11 +2353,6 @@ function MyPage({
             <small>{dashboard.customer.kycDocumentFrontName ?? '運転免許証提出待ち'}</small>
           </div>
           <div>
-            <span>VIP</span>
-            <strong>{dashboard.customer.vipLevel}</strong>
-            <small>{dashboard.todayUsed} / {dashboard.todayLimit} 本日利用</small>
-          </div>
-          <div>
             <span>AI裁定</span>
             <strong>{dashboard.customer.autoAiEnabled ? '稼働中' : '停止中'}</strong>
             <small>{dashboard.autoAiRuntime.nextRunHintJa}</small>
@@ -2197,27 +2371,79 @@ function MyPage({
   );
 }
 
-function LedgerPage({ ledger }: { ledger: LedgerEntry[] }) {
+function LedgerPage({ dashboard, navigate }: { dashboard: DashboardData; navigate: (page: CustomerPage) => void }) {
+  const ledger = dashboard.ledger;
+  const currentRule = vipRule(dashboard);
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <div>
-          <p className="eyebrow">Ledger</p>
-          <h2>資金履歴</h2>
+    <section className="ledger-workspace">
+      <section className="panel ledger-vip-panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">VIP Status</p>
+            <h2>VIP利用状況</h2>
+          </div>
+          <BadgeCheck size={22} />
         </div>
-        <History size={22} />
-      </div>
-      <PaginatedTable
-        columns={['種別', '資産', '金額', '残高', '状態', '時刻']}
-        rows={ledger.map((entry) => [
-          entry.titleJa,
-          entry.asset,
-          entry.asset === 'JPY' ? formatJpy(entry.amount) : entry.amount,
-          entry.asset === 'JPY' ? formatJpy(entry.balanceAfter) : entry.balanceAfter,
-          entry.ledgerStatus,
-          formatTime(entry.createdAt),
-        ])}
-      />
+        <div className="ledger-vip-grid">
+          <div>
+            <span>現在のVIP</span>
+            <strong>{dashboard.customer.vipLevel}</strong>
+            <small>AI算力 {currentRule.aiPower}</small>
+          </div>
+          <div>
+            <span>本日利用</span>
+            <strong>{dashboard.todayUsed} / {dashboard.todayLimit}</strong>
+            <small>東京自然日 00:00 - 23:59</small>
+          </div>
+          <div>
+            <span>本日収益</span>
+            <strong>{formatJpy(dashboard.todayProfitJpy)}</strong>
+            <small>成功注文の純利益</small>
+          </div>
+        </div>
+        <button className="secondary-button full" type="button" onClick={() => navigate('vip')}>
+          VIP詳細を確認
+        </button>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Ledger</p>
+            <h2>資金履歴</h2>
+          </div>
+          <History size={22} />
+        </div>
+        <MobileRecordPager
+          className="mobile-records"
+          emptyText="資金履歴はまだありません。"
+          items={ledger}
+          renderItem={(entry) => (
+            <article className="mobile-record-card static" key={entry.id}>
+              <div>
+                <RecordCode primary={entry.businessNo} secondary={entry.titleJa} />
+                <StatusBadge label={ledgerStatusJa(entry.ledgerStatus)} tone={ledgerStatusTone(entry.ledgerStatus)} />
+              </div>
+              <div className="mobile-record-main">
+                <strong>{entry.asset === 'JPY' ? formatJpy(entry.amount) : `${entry.amount} ${entry.asset}`}</strong>
+                <span>残高 {entry.asset === 'JPY' ? formatJpy(entry.balanceAfter) : `${entry.balanceAfter} ${entry.asset}`}</span>
+              </div>
+              <small>{formatTime(entry.createdAt)}</small>
+            </article>
+          )}
+        />
+        <PaginatedTable
+          columns={['種別', '資産', '金額', '残高', '状態', '時刻']}
+          rows={ledger.map((entry) => [
+            entry.titleJa,
+            entry.asset,
+            entry.asset === 'JPY' ? formatJpy(entry.amount) : entry.amount,
+            entry.asset === 'JPY' ? formatJpy(entry.balanceAfter) : entry.balanceAfter,
+            ledgerStatusJa(entry.ledgerStatus),
+            formatTime(entry.createdAt),
+          ])}
+        />
+      </section>
     </section>
   );
 }
@@ -3675,6 +3901,61 @@ function PaginatedTable({ columns, rows, pageSize = 10 }: { columns: string[]; r
   );
 }
 
+function MobileRecordPager<T,>({
+  items,
+  renderItem,
+  pageSize = 10,
+  emptyText,
+  className = '',
+}: {
+  items: T[];
+  renderItem: (item: T) => ReactNode;
+  pageSize?: number;
+  emptyText: string;
+  className?: string;
+}) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * pageSize;
+  const visibleItems = items.slice(start, start + pageSize);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  if (items.length === 0) {
+    return (
+      <div className={className}>
+        <EmptyState text={emptyText} />
+      </div>
+    );
+  }
+
+  const pager =
+    items.length > pageSize ? (
+      <PaginationControls
+        page={safePage}
+        totalPages={totalPages}
+        totalItems={items.length}
+        start={start}
+        pageSize={pageSize}
+        onPrev={() => setPage((value) => Math.max(1, value - 1))}
+        onNext={() => setPage((value) => Math.min(totalPages, value + 1))}
+      />
+    ) : null;
+
+  return (
+    <div className={className}>
+      {pager}
+      <div className="mobile-record-list">{visibleItems.map(renderItem)}</div>
+      {pager}
+    </div>
+  );
+}
+
 function PaginationControls({
   page,
   totalPages,
@@ -3839,6 +4120,66 @@ function normalizeSearch(value: string) {
 
 function scrollToId(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function customerBackTarget(page: CustomerPage, lastPage: CustomerPage): CustomerPage {
+  if (['deposit', 'withdraw', 'convert'].includes(page)) {
+    return lastPage === 'deposit' || lastPage === 'withdraw' || lastPage === 'convert' ? 'funds' : lastPage || 'funds';
+  }
+  if (page === 'vip') {
+    return 'ledger';
+  }
+  if (page === 'kyc' || page === 'invite') {
+    return 'my';
+  }
+  return lastPage || 'dashboard';
+}
+
+function customerPageTitle(page: CustomerPage) {
+  const labels: Record<CustomerPage, string> = {
+    dashboard: 'ホーム',
+    ai: 'AI裁定',
+    funds: '入出金',
+    deposit: '入金',
+    withdraw: '出金',
+    convert: '資産交換',
+    ledger: '履歴',
+    my: 'マイページ',
+    kyc: '本人確認',
+    vip: 'VIP',
+    invite: '招待',
+  };
+  return labels[page];
+}
+
+function isCustomerNavActive(navKey: CustomerPage, page: CustomerPage) {
+  if (navKey === 'funds') {
+    return ['funds', 'deposit', 'withdraw', 'convert'].includes(page);
+  }
+  if (navKey === 'ledger') {
+    return ['ledger', 'vip'].includes(page);
+  }
+  if (navKey === 'my') {
+    return ['my', 'kyc', 'invite'].includes(page);
+  }
+  return navKey === page;
+}
+
+async function copyToClipboard(value: string) {
+  if (!value) return;
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  textarea.remove();
 }
 
 function balanceOf(balances: AssetBalance[], asset: Asset) {
@@ -4082,6 +4423,26 @@ function withdrawalStatusTone(status: WithdrawalOrder['status']) {
     pending: 'warning',
     approved: 'success',
     rejected: 'danger',
+  };
+  return tones[status];
+}
+
+function ledgerStatusJa(status: LedgerEntry['ledgerStatus']) {
+  const labels: Record<LedgerEntry['ledgerStatus'], string> = {
+    pending: '処理中',
+    posted: '反映済み',
+    failed: '失敗',
+    reversed: '取消済み',
+  };
+  return labels[status];
+}
+
+function ledgerStatusTone(status: LedgerEntry['ledgerStatus']) {
+  const tones: Record<LedgerEntry['ledgerStatus'], 'default' | 'success' | 'warning' | 'danger'> = {
+    pending: 'warning',
+    posted: 'success',
+    failed: 'danger',
+    reversed: 'default',
   };
   return tones[status];
 }
