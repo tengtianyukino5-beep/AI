@@ -732,7 +732,7 @@ function KycPage(props: {
           <p>氏名、生年月日、住所、免許証番号が鮮明に見える写真をアップロードしてください。画像はぼやけ、反射、切れがない状態にしてください。</p>
         </div>
       </div>
-      <form className="form-grid" onSubmit={submit}>
+      <form className="form-grid kyc-form" onSubmit={submit}>
         <label>
           氏名
           <input value={fullName} onChange={(event) => setFullName(event.target.value)} />
@@ -764,7 +764,7 @@ function KycPage(props: {
             <img alt="運転免許証 表面写真" src={licensePreview} />
           </div>
         ) : null}
-        <button className="primary-button" type="submit">
+        <button className="primary-button kyc-submit-button" type="submit">
           本人確認を提出
         </button>
       </form>
@@ -1556,7 +1556,18 @@ function AiPage(props: {
         </div>
         <MarketTickerStrip tickers={props.dashboard.marketTickers.slice(0, 6)} />
       </div>
-      <div className="panel">
+      <div className="mobile-quick-jump" aria-label="AI裁定ページ内移動">
+        <button type="button" onClick={() => scrollToId('ai-opportunities')}>
+          機会
+        </button>
+        <button type="button" onClick={() => scrollToId('ai-orders')}>
+          注文履歴
+        </button>
+        <button type="button" onClick={() => scrollToId('ai-missed')}>
+          失敗記録
+        </button>
+      </div>
+      <div className="panel" id="ai-opportunities">
       <div className="panel-head">
         <div>
           <p className="eyebrow">裁定機会</p>
@@ -1663,7 +1674,7 @@ function AiPage(props: {
           </div>
         </div>
       ) : null}
-      <h3>失敗記録</h3>
+      <h3 id="ai-missed">失敗記録</h3>
       {missedPager}
       <div className="cards-list compact-list">
         {props.dashboard.missedOpportunities.length === 0 ? <EmptyState text="失敗した裁定機会はまだありません。" /> : null}
@@ -1780,7 +1791,7 @@ function AiPage(props: {
           </div>
         </div>
       ) : null}
-      <div className="operations-history-block">
+      <div className="operations-history-block" id="ai-orders">
         <div className="panel-head compact-head">
           <div>
             <p className="eyebrow">Execution Ledger</p>
@@ -2338,6 +2349,7 @@ function AdminKyc(props: {
   refresh: (token?: string) => Promise<AdminState>;
 }) {
   const submittedCustomers = props.state.customers.filter((customer) => customer.kycStatus !== 'not_submitted');
+  const [proofCustomer, setProofCustomer] = useState<CustomerProfile | null>(null);
 
   async function action(customerId: string, type: 'approve' | 'reject') {
     const result = await props.run(
@@ -2362,10 +2374,10 @@ function AdminKyc(props: {
               <p>{customer.name} / {customer.kycStatus === 'approved' ? '已通过' : customer.kycStatus === 'pending' ? '待审核' : customer.kycStatus}</p>
               <p>驾驶证正面：{customer.kycDocumentFrontName || '未上传'}</p>
               {customer.kycDocumentFrontDataUrl ? (
-                <a className="kyc-proof-thumb" href={customer.kycDocumentFrontDataUrl} rel="noreferrer" target="_blank">
+                <button className="kyc-proof-thumb" type="button" onClick={() => setProofCustomer(customer)}>
                   <img alt={`${customer.email} 驾驶证正面`} src={customer.kycDocumentFrontDataUrl} />
                   <span>点击查看驾驶证凭证</span>
-                </a>
+                </button>
               ) : (
                 <small className="warning-text">暂无驾驶证图片凭证</small>
               )}
@@ -2387,6 +2399,22 @@ function AdminKyc(props: {
           </article>
         ))}
       </div>
+      {proofCustomer?.kycDocumentFrontDataUrl ? (
+        <div className="admin-proof-modal" role="dialog" aria-modal="true" aria-label="驾驶证凭证预览">
+          <div className="admin-proof-viewer">
+            <div className="panel-head">
+              <div>
+                <p className="eyebrow">KYC Proof</p>
+                <h3>{proofCustomer.email}</h3>
+              </div>
+              <button className="ghost-button" type="button" onClick={() => setProofCustomer(null)}>
+                关闭
+              </button>
+            </div>
+            <img alt={`${proofCustomer.email} 驾驶证正面凭证`} src={proofCustomer.kycDocumentFrontDataUrl} />
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -3567,6 +3595,10 @@ function matchHistoryFilter(
 
 function normalizeSearch(value: string) {
   return value.trim().toLowerCase();
+}
+
+function scrollToId(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function balanceOf(balances: AssetBalance[], asset: Asset) {

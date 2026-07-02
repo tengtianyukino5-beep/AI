@@ -192,7 +192,7 @@ button:disabled {
 .toast {
   position: sticky;
   top: 10px;
-  z-index: 5;
+  z-index: 50;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -623,7 +623,13 @@ button:disabled {
   background: rgba(143, 215, 199, 0.08);
   color: #dbe9e4;
   padding: 8px;
+  text-align: left;
   text-decoration: none;
+}
+
+button.kyc-proof-thumb {
+  width: min(440px, 100%);
+  cursor: zoom-in;
 }
 
 .kyc-proof-thumb img {
@@ -638,6 +644,38 @@ button:disabled {
 .kyc-proof-thumb span {
   color: #8ed8c7;
   font-weight: 900;
+}
+
+.admin-proof-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 8, 13, 0.78);
+  padding: 18px;
+}
+
+.admin-proof-viewer {
+  display: grid;
+  gap: 14px;
+  width: min(920px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  border: 1px solid rgba(143, 215, 199, 0.24);
+  border-radius: 8px;
+  background: rgba(8, 23, 31, 0.98);
+  padding: 16px;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.58);
+}
+
+.admin-proof-viewer img {
+  display: block;
+  width: 100%;
+  max-height: 72vh;
+  border-radius: 8px;
+  object-fit: contain;
+  background: #edf6f3;
 }
 
 .sidebar {
@@ -1485,6 +1523,22 @@ button:disabled {
   gap: 14px;
 }
 
+.kyc-form {
+  align-items: start;
+}
+
+.kyc-form .kyc-preview {
+  grid-column: 1 / -1;
+  max-width: 520px;
+}
+
+.kyc-submit-button {
+  grid-column: 1 / -1;
+  justify-self: end;
+  min-width: 220px;
+  min-height: 46px;
+}
+
 .admin-login {
   width: min(440px, 100%);
   margin: 48px auto;
@@ -1606,6 +1660,10 @@ select:focus {
 .ai-workspace {
   display: grid;
   gap: 16px;
+}
+
+.mobile-quick-jump {
+  display: none;
 }
 
 .conversion-panel,
@@ -2593,9 +2651,25 @@ tr:last-child td {
   .topbar {
     position: sticky;
     top: 0;
-    z-index: 8;
+    z-index: 30;
     margin-bottom: 10px;
     padding: 10px;
+  }
+
+  .toast {
+    position: fixed;
+    top: auto;
+    right: 8px;
+    bottom: 10px;
+    left: 8px;
+    z-index: 90;
+    width: auto;
+    margin: 0;
+    padding: 12px 14px;
+    border-color: rgba(24, 210, 125, 0.38);
+    background: rgba(7, 23, 34, 0.96);
+    color: #e9f4ff;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
   }
 
   .brand {
@@ -2762,6 +2836,48 @@ tr:last-child td {
     min-height: 44px;
   }
 
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .kyc-submit-button {
+    justify-self: stretch;
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+  }
+
+  .kyc-form .kyc-preview {
+    max-width: 100%;
+  }
+
+  .mobile-quick-jump {
+    position: sticky;
+    top: 68px;
+    z-index: 25;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    border: 1px solid rgba(80, 129, 181, 0.28);
+    border-radius: 8px;
+    background: rgba(8, 19, 31, 0.94);
+    padding: 7px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+  }
+
+  .mobile-quick-jump button {
+    min-height: 38px;
+    border: 1px solid rgba(80, 129, 181, 0.25);
+    border-radius: 7px;
+    background: rgba(19, 44, 70, 0.88);
+    color: #e9f4ff;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
   .table-wrap {
     border-radius: 8px;
     overflow-x: auto;
@@ -2821,6 +2937,19 @@ tr:last-child td {
     width: 100%;
     height: auto;
     max-height: 220px;
+  }
+
+  .admin-proof-modal {
+    padding: 8px;
+  }
+
+  .admin-proof-viewer {
+    max-height: calc(100vh - 16px);
+    padding: 10px;
+  }
+
+  .admin-proof-viewer img {
+    max-height: 70vh;
   }
 }
 
