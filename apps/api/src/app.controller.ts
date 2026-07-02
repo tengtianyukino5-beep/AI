@@ -15,7 +15,7 @@ interface ApiResponse<T> {
 }
 
 @ApiTags('AI Arbitrage MVP')
-@Controller()
+@Controller('api/v1')
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
