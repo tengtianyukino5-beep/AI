@@ -729,6 +729,8 @@ function DepositPage(props: {
   const [proofPreview, setProofPreview] = useState('');
   const selectedNetwork = networkForAsset(asset, network);
   const depositAddress = depositAddressFor(props.dashboard.depositAddresses, asset, selectedNetwork);
+  const depositTotalJpy = sumValuationJpy(props.dashboard.deposits);
+  const latestDepositAt = latestRecordTime(props.dashboard.deposits);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -902,16 +904,24 @@ function DepositPage(props: {
           </div>
           <History size={22} />
         </div>
+        <HistorySummary
+          items={[
+            { label: '総申請', value: props.dashboard.deposits.length, note: '全ネットワーク' },
+            { label: '確認中', value: countByStatus(props.dashboard.deposits, 'pending'), note: '管理確認待ち', tone: 'warning' },
+            { label: '反映済み', value: countByStatus(props.dashboard.deposits, 'approved'), note: '残高反映済み', tone: 'success' },
+            { label: '申請時評価額', value: formatJpy(depositTotalJpy), note: latestDepositAt ? `最新 ${formatTime(latestDepositAt)}` : '記録なし' },
+          ]}
+        />
         <PaginatedTable
           columns={['受付番号', '資産', 'ネットワーク', '数量', '申請時評価額', '価格ソース', '状態', '証明', '申請時刻']}
           rows={props.dashboard.deposits.map((deposit) => [
-            deposit.businessNo,
-            deposit.asset,
+            <RecordCode key={`${deposit.id}-no`} primary={deposit.businessNo} secondary={deposit.depositAddressSnapshot ? 'アドレス確認済み' : 'アドレス未設定'} />,
+            <AssetBadge key={`${deposit.id}-asset`} asset={deposit.asset} network={deposit.network} />,
             deposit.network ?? '-',
             deposit.amount,
             deposit.valuationJpy ? formatJpy(deposit.valuationJpy) : '-',
             deposit.priceSourceLabelJa ?? priceSourceLabelJa(deposit.priceSource),
-            depositStatusJa(deposit.status),
+            <StatusBadge key={`${deposit.id}-status`} label={depositStatusJa(deposit.status)} tone={depositStatusTone(deposit.status)} />,
             deposit.proofImageName || deposit.proofText,
             formatTime(deposit.createdAt),
           ])}
@@ -935,6 +945,8 @@ function WithdrawalPage(props: {
   const [destinationText, setDestinationText] = useState(() => withdrawalDestinationFor(props.dashboard.customer, 'JPY', 'Bank'));
   const [note, setNote] = useState('');
   const selectedBalance = balanceOf(props.dashboard.balances, asset);
+  const withdrawalTotalJpy = sumValuationJpy(props.dashboard.withdrawals);
+  const latestWithdrawalAt = latestRecordTime(props.dashboard.withdrawals);
 
   useEffect(() => {
     setDestinationText(withdrawalDestinationFor(props.dashboard.customer, asset, network));
@@ -1070,17 +1082,25 @@ function WithdrawalPage(props: {
           </div>
           <History size={22} />
         </div>
+        <HistorySummary
+          items={[
+            { label: '総申請', value: props.dashboard.withdrawals.length, note: 'JPY / 暗号資産' },
+            { label: '審査中', value: countByStatus(props.dashboard.withdrawals, 'pending'), note: '処理待ち', tone: 'warning' },
+            { label: '出金完了', value: countByStatus(props.dashboard.withdrawals, 'approved'), note: '承認済み', tone: 'success' },
+            { label: '申請時評価額', value: formatJpy(withdrawalTotalJpy), note: latestWithdrawalAt ? `最新 ${formatTime(latestWithdrawalAt)}` : '記録なし' },
+          ]}
+        />
         <PaginatedTable
           columns={['受付番号', '資産', 'ネットワーク', '数量', '申請時評価額', '価格ソース', '出金先', '状態', '申請時刻']}
           rows={props.dashboard.withdrawals.map((withdrawal) => [
-            withdrawal.businessNo,
-            withdrawal.asset,
+            <RecordCode key={`${withdrawal.id}-no`} primary={withdrawal.businessNo} secondary={withdrawal.destinationType === 'bank' ? '銀行口座' : 'ウォレット'} />,
+            <AssetBadge key={`${withdrawal.id}-asset`} asset={withdrawal.asset} network={withdrawal.network} />,
             withdrawal.network ?? '-',
             withdrawal.asset === 'JPY' ? formatJpy(withdrawal.amount) : withdrawal.amount,
             withdrawal.valuationJpy ? formatJpy(withdrawal.valuationJpy) : '-',
             withdrawal.priceSourceLabelJa ?? priceSourceLabelJa(withdrawal.priceSource),
             withdrawal.destinationText,
-            withdrawalStatusJa(withdrawal.status),
+            <StatusBadge key={`${withdrawal.id}-status`} label={withdrawalStatusJa(withdrawal.status)} tone={withdrawalStatusTone(withdrawal.status)} />,
             formatTime(withdrawal.createdAt),
           ])}
         />
@@ -1295,6 +1315,8 @@ function AiPage(props: {
   const safeMissedPage = Math.min(missedPage, missedTotalPages);
   const missedStart = (safeMissedPage - 1) * missedPageSize;
   const visibleMissed = props.dashboard.missedOpportunities.slice(missedStart, missedStart + missedPageSize);
+  const orderProfitJpy = props.dashboard.orders.reduce((sum, order) => sum + Number(order.profitJpy || 0), 0);
+  const latestOrderAt = latestRecordTime(props.dashboard.orders);
   const missedPager =
     props.dashboard.missedOpportunities.length > missedPageSize ? (
       <PaginationControls
@@ -1654,24 +1676,46 @@ function AiPage(props: {
           <p>{lastOrder.disclosureJa}</p>
         </div>
       ) : null}
-      <h3>注文履歴</h3>
-      <PaginatedTable
-        columns={['業務番号', '結果', 'AI実行', '市場', '取引所', '資産', '元本', '粗利益', '控除', '純利益', '理由', '時刻']}
-        rows={props.dashboard.orders.map((order) => [
-          order.businessNo,
-          order.status === 'settled' ? '成功' : order.status === 'failed' ? '失敗' : orderStatusJa(order.status),
-          executionVenueJa(order.executionVenue),
-          marketSourceJa(order.marketSource),
-          `${order.buyExchange ?? '-'} -> ${order.sellExchange ?? '-'}`,
-          order.baseAsset ?? '-',
-          formatJpy(order.principalJpy),
-          formatJpy(order.grossProfitJpy ?? '0'),
-          formatJpy(order.totalCostJpy ?? '0'),
-          formatJpy(order.profitJpy),
-          order.failureReasonJa ?? (order.status === 'settled' ? '残高反映済み' : '-'),
-          formatTime(order.createdAt),
-        ])}
-      />
+      <div className="operations-history-block">
+        <div className="panel-head compact-head">
+          <div>
+            <p className="eyebrow">Execution Ledger</p>
+            <h3>注文履歴</h3>
+          </div>
+          <History size={20} />
+        </div>
+        <HistorySummary
+          items={[
+            { label: '総注文', value: props.dashboard.orders.length, note: '手動 / 自動' },
+            { label: '成功', value: countByStatus(props.dashboard.orders, 'settled'), note: '残高反映済み', tone: 'success' },
+            { label: '失敗', value: countByStatus(props.dashboard.orders, 'failed'), note: '利益反映なし', tone: 'warning' },
+            { label: '純利益合計', value: formatJpy(orderProfitJpy), note: latestOrderAt ? `最新 ${formatTime(latestOrderAt)}` : '記録なし' },
+          ]}
+        />
+        <PaginatedTable
+          columns={['業務番号', '結果', 'AI実行', '市場', '取引所', '資産', '元本', '粗利益', '控除', '純利益', '理由', '時刻']}
+          rows={props.dashboard.orders.map((order) => [
+            <RecordCode key={`${order.id}-no`} primary={order.businessNo} secondary={order.opportunityId} />,
+            <StatusBadge
+              key={`${order.id}-status`}
+              label={order.status === 'settled' ? '成功' : order.status === 'failed' ? '失敗' : orderStatusJa(order.status)}
+              tone={orderStatusTone(order.status)}
+            />,
+            executionVenueJa(order.executionVenue),
+            marketSourceJa(order.marketSource),
+            `${order.buyExchange ?? '-'} -> ${order.sellExchange ?? '-'}`,
+            order.baseAsset ?? '-',
+            formatJpy(order.principalJpy),
+            formatJpy(order.grossProfitJpy ?? '0'),
+            formatJpy(order.totalCostJpy ?? '0'),
+            <strong className={Number(order.profitJpy) > 0 ? 'profit-cell' : 'muted-cell'} key={`${order.id}-profit`}>
+              {formatJpy(order.profitJpy)}
+            </strong>,
+            order.failureReasonJa ?? (order.status === 'settled' ? '残高反映済み' : '-'),
+            formatTime(order.createdAt),
+          ])}
+        />
+      </div>
       </div>
     </section>
   );
@@ -1790,7 +1834,7 @@ function LedgerPage({ ledger }: { ledger: LedgerEntry[] }) {
         </div>
         <History size={22} />
       </div>
-      <DataTable
+      <PaginatedTable
         columns={['種別', '資産', '金額', '残高', '状態', '時刻']}
         rows={ledger.map((entry) => [
           entry.titleJa,
@@ -1856,7 +1900,7 @@ function AdminApp(props: {
             <strong>¥ {Number(props.adminState.summary.totalJpy).toLocaleString('ja-JP')}</strong>
             <small>全站 JPY 可用余额</small>
           </div>
-          <button className="secondary-button" type="button" onClick={() => void props.refresh()}>
+          <button className="secondary-button" type="button" onClick={() => void refreshAdminState()}>
             <RefreshCw size={16} />
             刷新
           </button>
@@ -1872,6 +1916,16 @@ function AdminApp(props: {
       </div>
     </section>
   );
+
+  async function refreshAdminState() {
+    const result = await props.run(
+      () => props.call<AdminState>('/admin/exchanges/refresh', { method: 'POST' }, props.token),
+      '交易所行情 API 已刷新。',
+    );
+    if (result) {
+      await props.refresh();
+    }
+  }
 }
 
 function AdminLogin(props: {
@@ -2898,7 +2952,7 @@ function AdminAudit({ state }: { state: AdminState }) {
         <h2>审计日志</h2>
         <History size={22} />
       </div>
-      <DataTable
+      <PaginatedTable
         columns={['动作', '操作人', '对象', '详情', '时间']}
         rows={state.auditLogs.map((log) => [log.action, log.operator, `${log.targetType}:${log.targetId}`, log.detail, formatTime(log.createdAt)])}
       />
@@ -2942,6 +2996,46 @@ function DataTable({ columns, rows }: { columns: string[]; rows: Array<Array<Rea
         </tbody>
       </table>
     </div>
+  );
+}
+
+function HistorySummary({
+  items,
+}: {
+  items: Array<{ label: string; value: ReactNode; note: string; tone?: 'default' | 'success' | 'warning' | 'danger' }>;
+}) {
+  return (
+    <div className="history-summary-grid">
+      {items.map((item) => (
+        <div className={item.tone ? `history-summary-card ${item.tone}` : 'history-summary-card'} key={item.label}>
+          <span>{item.label}</span>
+          <strong>{item.value}</strong>
+          <small>{item.note}</small>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatusBadge({ label, tone = 'default' }: { label: string; tone?: 'default' | 'success' | 'warning' | 'danger' }) {
+  return <span className={`status-badge ${tone}`}>{label}</span>;
+}
+
+function RecordCode({ primary, secondary }: { primary: string; secondary?: string }) {
+  return (
+    <span className="record-code">
+      <strong>{primary}</strong>
+      {secondary ? <small>{secondary}</small> : null}
+    </span>
+  );
+}
+
+function AssetBadge({ asset, network }: { asset: Asset; network?: string }) {
+  return (
+    <span className="asset-badge">
+      <strong>{asset}</strong>
+      {network ? <small>{network}</small> : null}
+    </span>
   );
 }
 
@@ -3189,6 +3283,15 @@ function depositStatusJa(status: DepositOrder['status']) {
   return labels[status];
 }
 
+function depositStatusTone(status: DepositOrder['status']) {
+  const tones: Record<DepositOrder['status'], 'success' | 'warning' | 'danger'> = {
+    pending: 'warning',
+    approved: 'success',
+    rejected: 'danger',
+  };
+  return tones[status];
+}
+
 function withdrawalStatusJa(status: WithdrawalOrder['status']) {
   const labels: Record<WithdrawalOrder['status'], string> = {
     pending: '審査中',
@@ -3196,6 +3299,15 @@ function withdrawalStatusJa(status: WithdrawalOrder['status']) {
     rejected: '差戻し',
   };
   return labels[status];
+}
+
+function withdrawalStatusTone(status: WithdrawalOrder['status']) {
+  const tones: Record<WithdrawalOrder['status'], 'success' | 'warning' | 'danger'> = {
+    pending: 'warning',
+    approved: 'success',
+    rejected: 'danger',
+  };
+  return tones[status];
 }
 
 function orderStatusJa(status: SimulationOrder['status']) {
@@ -3208,6 +3320,34 @@ function orderStatusJa(status: SimulationOrder['status']) {
     cancelled: '取消',
   };
   return labels[status];
+}
+
+function orderStatusTone(status: SimulationOrder['status']) {
+  const tones: Record<SimulationOrder['status'], 'default' | 'success' | 'warning' | 'danger'> = {
+    created: 'default',
+    analyzing: 'warning',
+    executing: 'warning',
+    settled: 'success',
+    failed: 'danger',
+    cancelled: 'danger',
+  };
+  return tones[status];
+}
+
+function countByStatus<T extends { status: string }>(items: T[], status: T['status']) {
+  return items.filter((item) => item.status === status).length;
+}
+
+function sumValuationJpy(items: Array<{ valuationJpy?: string }>) {
+  return items.reduce((sum, item) => sum + Number(item.valuationJpy || 0), 0);
+}
+
+function latestRecordTime(items: Array<{ createdAt: string; completedAt?: string; settledAt?: string }>) {
+  const latest = items
+    .map((item) => item.settledAt ?? item.completedAt ?? item.createdAt)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+  return latest;
 }
 
 function executionModeJa(mode?: DashboardData['tradingRuntime']['executionMode']) {
