@@ -653,12 +653,22 @@ export class AppService {
     };
   }
 
-  sendEmailCode(email: string) {
-    this.emailCodes.set(email.toLowerCase(), '888888');
+  async sendEmailCode(email: string) {
+    const normalizedEmail = email.toLowerCase().trim();
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      throw new Error('メールアドレスを入力してください。');
+    }
+    const realEmailEnabled = this.realEmailEnabled();
+    const code = realEmailEnabled ? this.emailCode() : '888888';
+    this.emailCodes.set(normalizedEmail, code);
+    if (realEmailEnabled) {
+      await this.sendEmailCodeViaProvider(normalizedEmail, code);
+    }
     return {
-      email,
-      developmentCode: '888888',
-      messageJa: '開発環境の認証コードは 888888 です。',
+      email: normalizedEmail,
+      deliveryMode: realEmailEnabled ? 'email_api' : 'development',
+      developmentCode: realEmailEnabled ? undefined : '888888',
+      messageJa: realEmailEnabled ? '認証コードをメールで送信しました。' : '開発環境の認証コードは 888888 です。',
     };
   }
 
@@ -667,7 +677,7 @@ export class AppService {
     if (!email || !input.password) {
       throw new Error('メールアドレスとパスワードを入力してください。');
     }
-    if ((this.emailCodes.get(email) ?? '888888') !== input.code) {
+    if ((this.emailCodes.get(email) ?? (this.realEmailEnabled() ? '' : '888888')) !== input.code) {
       throw new Error('認証コードが正しくありません。');
     }
     const existing = [...this.customers.values()].find((customer) => customer.email === email);
@@ -1445,6 +1455,57 @@ export class AppService {
     const token = `${role}_${Math.random().toString(36).slice(2)}_${Date.now()}`;
     this.tokens.set(token, { actorId, role });
     return token;
+  }
+
+  private emailCode() {
+    return String(Math.floor(Math.random() * 900000 + 100000));
+  }
+
+  private realEmailEnabled() {
+    return Boolean(process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY);
+  }
+
+  private async sendEmailCodeViaProvider(email: string, code: string) {
+    const subject = 'AI Arbitrage Pro 認証コード';
+    const text = `認証コードは ${code} です。10分以内に登録画面へ入力してください。`;
+    if (process.env.RESEND_API_KEY) {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: process.env.EMAIL_FROM || 'AI Arbitrage Pro <onboarding@resend.dev>',
+          to: [email],
+          subject,
+          text,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`認証メール送信に失敗しました。Resend API status=${response.status}`);
+      }
+      return;
+    }
+
+    if (process.env.SENDGRID_API_KEY) {
+      const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          personalizations: [{ to: [{ email }] }],
+          from: { email: process.env.EMAIL_FROM || 'noreply@example.com', name: 'AI Arbitrage Pro' },
+          subject,
+          content: [{ type: 'text/plain', value: text }],
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`認証メール送信に失敗しました。SendGrid API status=${response.status}`);
+      }
+    }
   }
 
   private publicCustomer(customer: CustomerRecord): CustomerProfile {

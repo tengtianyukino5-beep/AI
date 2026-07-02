@@ -403,6 +403,8 @@ function CustomerAuth(props: {
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [inviteCode, setInviteCode] = useState('');
+  const [emailCodeSending, setEmailCodeSending] = useState(false);
+  const [emailCodeSent, setEmailCodeSent] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -418,6 +420,24 @@ function CustomerAuth(props: {
     if (result) {
       props.onLogin(result);
     }
+  }
+
+  async function sendEmailCode() {
+    if (!email.trim()) {
+      await props.run(() => Promise.reject(new Error('メールアドレスを入力してください。')));
+      return;
+    }
+    setEmailCodeSending(true);
+    const result = await props.run(
+      () =>
+        props.call('/auth/email-code/send', {
+          method: 'POST',
+          body: JSON.stringify({ email }),
+        }),
+      '認証コードを送信しました。',
+    );
+    setEmailCodeSending(false);
+    setEmailCodeSent(Boolean(result));
   }
 
   return (
@@ -455,7 +475,13 @@ function CustomerAuth(props: {
         </div>
         <label>
           メール
-          <input value={email} onChange={(event) => setEmail(event.target.value)} />
+          <input
+            value={email}
+            onChange={(event) => {
+              setEmail(event.target.value);
+              setEmailCodeSent(false);
+            }}
+          />
         </label>
         <label>
           パスワード
@@ -470,19 +496,11 @@ function CustomerAuth(props: {
               </label>
               <button
                 className="secondary-button"
+                disabled={emailCodeSending}
                 type="button"
-                onClick={() =>
-                  void props.run(
-                    () =>
-                      props.call('/auth/email-code/send', {
-                        method: 'POST',
-                        body: JSON.stringify({ email }),
-                      }),
-                    '認証コードを送信しました。',
-                  )
-                }
+                onClick={() => void sendEmailCode()}
               >
-                送信
+                {emailCodeSending ? '送信中...' : emailCodeSent ? '送信済み' : '送信'}
               </button>
             </div>
             <label>
