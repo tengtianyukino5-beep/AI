@@ -606,7 +606,9 @@ button:disabled {
 .customer-shell .funds-balance-grid div,
 .customer-shell .mobile-action,
 .customer-shell .my-menu-button,
-.customer-shell .account-log-list div {
+.customer-shell .account-log-list div,
+.customer-shell .deposit-step-flow button,
+.customer-shell .request-address-summary {
   border-color: rgba(80, 129, 181, 0.24);
   background:
     linear-gradient(180deg, rgba(12, 32, 52, 0.96), rgba(8, 22, 37, 0.92)),
@@ -619,15 +621,32 @@ button:disabled {
 .customer-shell .mobile-action span,
 .customer-shell .my-menu-button small,
 .customer-shell .account-log-list span,
-.customer-shell .account-log-list small {
+.customer-shell .account-log-list small,
+.customer-shell .deposit-step-flow span,
+.customer-shell .deposit-step-flow small,
+.customer-shell .request-address-summary span {
   color: rgba(216, 230, 243, 0.66);
 }
 
 .customer-shell .funds-balance-grid strong,
 .customer-shell .mobile-action strong,
 .customer-shell .my-menu-button strong,
-.customer-shell .account-log-list strong {
+.customer-shell .account-log-list strong,
+.customer-shell .deposit-step-flow strong,
+.customer-shell .request-address-summary strong {
   color: #f4f9ff;
+}
+
+.customer-shell .deposit-step-flow button.active {
+  border-color: rgba(24, 210, 125, 0.56);
+  background:
+    radial-gradient(circle at top right, rgba(24, 210, 125, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(13, 46, 58, 0.96), rgba(8, 22, 37, 0.94));
+}
+
+.customer-shell .request-address-summary code {
+  background: rgba(216, 230, 243, 0.08);
+  color: #dffdf4;
 }
 
 .customer-shell .mobile-action svg,
@@ -1771,10 +1790,15 @@ select:focus {
 }
 
 .mobile-action-grid,
-.funds-action-grid,
 .my-menu-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.funds-action-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1892,6 +1916,70 @@ select:focus {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.deposit-step-flow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.deposit-step-flow button {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(16, 63, 69, 0.12);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 250, 247, 0.9)),
+    #ffffff;
+  color: #142b2b;
+  padding: 12px;
+  text-align: left;
+}
+
+.deposit-step-flow button.active {
+  border-color: rgba(15, 118, 110, 0.42);
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.16), rgba(255, 255, 255, 0.94)),
+    #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.16);
+}
+
+.deposit-step-flow span,
+.deposit-step-flow small,
+.request-address-summary span {
+  color: #60736a;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.deposit-step-flow strong,
+.request-address-summary strong {
+  color: #142b2b;
+}
+
+.deposit-step-actions {
+  width: 100%;
+}
+
+.request-address-summary {
+  display: grid;
+  gap: 7px;
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: 8px;
+  background: rgba(15, 118, 110, 0.08);
+  padding: 12px;
+}
+
+.request-address-summary code {
+  min-width: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #103f45;
+  padding: 9px;
+  font-size: 12px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
 }
 
 .deposit-form-grid {
@@ -3547,6 +3635,24 @@ tr:last-child td {
     color: #142b2b;
     padding: 11px;
     text-align: left;
+  }
+
+  .customer-shell .mobile-record-card .record-code strong {
+    border-color: rgba(15, 118, 110, 0.2);
+    background: rgba(15, 118, 110, 0.08);
+    color: #103f45;
+    font-size: 12px;
+  }
+
+  .customer-shell .mobile-record-card .record-code small,
+  .customer-shell .mobile-record-card .asset-badge small {
+    color: #5f7169;
+  }
+
+  .customer-shell .mobile-record-card .asset-badge strong {
+    border-color: rgba(15, 118, 110, 0.2);
+    background: rgba(15, 118, 110, 0.08);
+    color: #103f45;
   }
 
   .mobile-record-card > div:first-child,
