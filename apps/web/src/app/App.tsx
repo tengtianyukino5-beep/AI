@@ -18,6 +18,8 @@ import {
   LogIn,
   LineChart,
   Search,
+  Info,
+  MessageCircle,
   RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
@@ -93,7 +95,21 @@ type AdminState = {
   };
 };
 
-type CustomerPage = 'dashboard' | 'kyc' | 'deposit' | 'withdraw' | 'convert' | 'funds' | 'ai' | 'vip' | 'invite' | 'ledger' | 'activity' | 'my';
+type CustomerPage =
+  | 'dashboard'
+  | 'kyc'
+  | 'deposit'
+  | 'withdraw'
+  | 'convert'
+  | 'funds'
+  | 'ai'
+  | 'vip'
+  | 'invite'
+  | 'ledger'
+  | 'activity'
+  | 'support'
+  | 'about'
+  | 'my';
 type AdminPage = 'overview' | 'customers' | 'kyc' | 'deposits' | 'withdrawals' | 'balances' | 'rules' | 'audit';
 type VipDraftKey = 'dailyLimit' | 'minBalanceJpy' | 'upgradeBalanceJpy' | 'highProfitProbability' | 'aiPower';
 type AdminRealtimeState = 'offline' | 'connecting' | 'live' | 'fallback';
@@ -416,6 +432,8 @@ function CustomerApp(props: {
         {props.page === 'invite' ? <InvitePage token={props.token} call={props.call} run={props.run} /> : null}
         {props.page === 'ledger' ? <LedgerPage dashboard={props.dashboard} /> : null}
         {props.page === 'activity' ? <ActivitySearchPage dashboard={props.dashboard} /> : null}
+        {props.page === 'support' ? <SupportPage dashboard={props.dashboard} /> : null}
+        {props.page === 'about' ? <PlatformAboutPage /> : null}
         {props.page === 'my' ? <MyPage dashboard={props.dashboard} navigate={navigate} onLogout={props.onLogout} /> : null}
       </div>
       <CustomerBottomNav page={props.page} setPage={navigate} />
@@ -873,11 +891,16 @@ function DepositPage(props: {
   const [proofPreview, setProofPreview] = useState('');
   const [depositStep, setDepositStep] = useState<'address' | 'request'>('address');
   const [selectedDeposit, setSelectedDeposit] = useState<DepositOrder | null>(null);
+  const [addressCopied, setAddressCopied] = useState(false);
   const selectedNetwork = networkForAsset(asset, network);
   const depositAddress = depositAddressFor(props.dashboard.depositAddresses, asset, selectedNetwork);
   const depositTotalJpy = sumValuationJpy(props.dashboard.deposits);
   const latestDepositAt = latestRecordTime(props.dashboard.deposits);
   const depositRecords = props.dashboard.deposits;
+
+  useEffect(() => {
+    setAddressCopied(false);
+  }, [asset, selectedNetwork]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -933,6 +956,12 @@ function DepositPage(props: {
     }
     setProofFileName(file.name);
     void compactImage(file).then(setProofPreview).catch(() => setProofPreview(''));
+  }
+
+  async function copyDepositAddress() {
+    await copyToClipboard(depositAddress?.address ?? '');
+    setAddressCopied(true);
+    window.setTimeout(() => setAddressCopied(false), 2200);
   }
 
   return (
@@ -1003,9 +1032,9 @@ function DepositPage(props: {
           <code>{depositAddress?.address ?? '現在このネットワークの入金アドレスは準備中です。'}</code>
           {depositAddress?.memo ? <p>メモ：{depositAddress.memo}</p> : null}
           <div className="row-actions deposit-step-actions">
-            <button className="secondary-button" disabled={!depositAddress?.address} type="button" onClick={() => void copyToClipboard(depositAddress?.address ?? '')}>
-              <Copy size={16} />
-              アドレスをコピー
+            <button className={addressCopied ? 'secondary-button copied' : 'secondary-button'} disabled={!depositAddress?.address} type="button" onClick={() => void copyDepositAddress()}>
+              {addressCopied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
+              {addressCopied ? 'コピー済み' : 'アドレスをコピー'}
             </button>
             <button className="primary-button" type="button" onClick={() => setDepositStep('request')}>
               STEP 2へ進む
@@ -1120,9 +1149,9 @@ function DepositPage(props: {
           className="secondary-button full"
           disabled={!depositAddress?.address}
           type="button"
-          onClick={() => void copyToClipboard(depositAddress?.address ?? '')}
+          onClick={() => void copyDepositAddress()}
         >
-          受取アドレスをコピー
+          {addressCopied ? 'コピー済み' : '受取アドレスをコピー'}
         </button>
         <div className="flow-steps deposit-steps">
           <span className="active">1. 送金</span>
@@ -2326,6 +2355,8 @@ function MyPage({
     { label: '全履歴検索', page: 'activity', icon: Search, note: '入金・出金・AI注文' },
     { label: '招待', page: 'invite', icon: Gift, note: 'コード確認' },
     { label: '本人確認', page: 'kyc', icon: ShieldCheck, note: kycLabelJa(dashboard.customer.kycStatus) },
+    { label: 'サポート', page: 'support', icon: MessageCircle, note: 'お問い合わせ' },
+    { label: '運営案内', page: 'about', icon: Info, note: 'プラットフォーム説明' },
   ];
 
   return (
@@ -2390,6 +2421,157 @@ function MyPage({
           ログアウト
         </button>
       </div>
+    </section>
+  );
+}
+
+function SupportPage({ dashboard }: { dashboard: DashboardData }) {
+  const [category, setCategory] = useState('入出金について');
+  const [message, setMessage] = useState('');
+  const [sentNo, setSentNo] = useState('');
+  const [sending, setSending] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!message.trim()) {
+      setSentNo('内容を入力してください。');
+      return;
+    }
+    setSending(true);
+    window.setTimeout(() => {
+      setSentNo(`SUP-${Date.now().toString(36).toUpperCase().slice(-8)}`);
+      setMessage('');
+      setSending(false);
+    }, 650);
+  }
+
+  return (
+    <section className="support-page">
+      <section className="panel support-hero">
+        <div>
+          <p className="eyebrow">Online Support</p>
+          <h2>オンラインサポート</h2>
+          <p>入出金、本人確認、資産交換、AI裁定の操作について、東京時間を基準にサポート受付を行います。</p>
+        </div>
+        <div className="support-status-card">
+          <span>受付状態</span>
+          <strong>受付中</strong>
+          <small>通常返信目安 10-30分</small>
+        </div>
+      </section>
+
+      <section className="two-column support-workspace">
+        <form className="panel support-form" onSubmit={submit}>
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Contact</p>
+              <h2>お問い合わせ</h2>
+            </div>
+            <MessageCircle size={22} />
+          </div>
+          <label>
+            お問い合わせ種別
+            <select value={category} onChange={(event) => setCategory(event.target.value)}>
+              <option>入出金について</option>
+              <option>本人確認について</option>
+              <option>資産交換について</option>
+              <option>AI裁定について</option>
+              <option>アカウントについて</option>
+            </select>
+          </label>
+          <label>
+            お問い合わせ内容
+            <textarea
+              rows={6}
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder="確認したい内容、業務番号、対象資産などを入力してください。"
+            />
+          </label>
+          <div className="support-account-box">
+            <span>アカウント</span>
+            <strong>{customerDisplayNameJa(dashboard.customer)}</strong>
+            <small>{dashboard.customer.email}</small>
+          </div>
+          <button className="primary-button" disabled={sending} type="submit">
+            {sending ? '送信中...' : '送信する'}
+          </button>
+          {sentNo ? (
+            <div className={sentNo.startsWith('SUP-') ? 'runtime-banner light support-ticket success' : 'runtime-banner light support-ticket warning-runtime'}>
+              {sentNo.startsWith('SUP-') ? <CheckCircle2 size={18} /> : <Clock3 size={18} />}
+              <span>{sentNo.startsWith('SUP-') ? `受付番号：${sentNo}` : sentNo}</span>
+            </div>
+          ) : null}
+        </form>
+
+        <aside className="panel support-guide">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Guide</p>
+              <h2>よくある確認項目</h2>
+            </div>
+            <Info size={22} />
+          </div>
+          <div className="support-guide-list">
+            <div>
+              <strong>入金が反映されない場合</strong>
+              <span>業務番号、資産、ネットワーク、送金TxID、証明写真の状態を確認してください。</span>
+            </div>
+            <div>
+              <strong>出金申請について</strong>
+              <span>出金先、ネットワーク、審査状態、管理メモを履歴詳細で確認できます。</span>
+            </div>
+            <div>
+              <strong>AI裁定について</strong>
+              <span>成功・失敗の理由、価格差、控除、純利益は注文詳細で確認できます。</span>
+            </div>
+          </div>
+        </aside>
+      </section>
+    </section>
+  );
+}
+
+function PlatformAboutPage() {
+  return (
+    <section className="about-page">
+      <section className="panel support-hero">
+        <div>
+          <p className="eyebrow">Platform</p>
+          <h2>プラットフォームについて</h2>
+          <p>本人確認、資産管理、AI裁定、入出金申請、履歴確認を一つのアカウントで管理するための運営基盤です。</p>
+        </div>
+        <div className="support-status-card">
+          <span>基準時間</span>
+          <strong>Asia/Tokyo</strong>
+          <small>東京自然日 00:00 - 23:59</small>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Operation Flow</p>
+            <h2>ご利用の流れ</h2>
+          </div>
+          <Info size={22} />
+        </div>
+        <div className="about-flow-grid">
+          {[
+            { title: '1. アカウント登録', text: 'メール認証後、マイページから本人確認を提出します。' },
+            { title: '2. 本人確認', text: '運転免許証表面写真と氏名を確認し、承認後に各機能が利用できます。' },
+            { title: '3. 資産入金', text: '資産とネットワークを選択し、表示された入金アドレスへ送金します。' },
+            { title: '4. 資産交換', text: '保有暗号資産をJPYへ交換し、VIP条件やAI裁定の利用残高に反映します。' },
+            { title: '5. AI裁定', text: '市場データ、手数料、スリッページ、リスクバッファをもとに注文結果を記録します。' },
+            { title: '6. 履歴確認', text: '入金、出金、AI注文、資金履歴は詳細画面と全履歴検索で確認できます。' },
+          ].map((item) => (
+            <div className="about-flow-card" key={item.title}>
+              <strong>{item.title}</strong>
+              <span>{item.text}</span>
+            </div>
+          ))}
+        </div>
+      </section>
     </section>
   );
 }
@@ -4390,7 +4572,7 @@ function customerBackTarget(page: CustomerPage, lastPage: CustomerPage): Custome
   if (['deposit', 'withdraw', 'convert'].includes(page)) {
     return lastPage === 'deposit' || lastPage === 'withdraw' || lastPage === 'convert' ? 'funds' : lastPage || 'funds';
   }
-  if (page === 'ledger' || page === 'activity') {
+  if (page === 'ledger' || page === 'activity' || page === 'support' || page === 'about') {
     return 'my';
   }
   if (page === 'kyc' || page === 'invite') {
@@ -4409,6 +4591,8 @@ function customerPageTitle(page: CustomerPage) {
     convert: '資産交換',
     ledger: '履歴',
     activity: '全履歴検索',
+    support: 'サポート',
+    about: '運営案内',
     my: 'マイページ',
     kyc: '本人確認',
     vip: 'VIP',
@@ -4425,7 +4609,7 @@ function isCustomerNavActive(navKey: CustomerPage, page: CustomerPage) {
     return page === 'vip';
   }
   if (navKey === 'my') {
-    return ['my', 'kyc', 'invite', 'ledger', 'activity'].includes(page);
+    return ['my', 'kyc', 'invite', 'ledger', 'activity', 'support', 'about'].includes(page);
   }
   return navKey === page;
 }

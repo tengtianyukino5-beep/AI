@@ -607,6 +607,10 @@ button:disabled {
 .customer-shell .mobile-action,
 .customer-shell .my-menu-button,
 .customer-shell .account-log-list div,
+.customer-shell .support-status-card,
+.customer-shell .support-account-box,
+.customer-shell .support-guide-list div,
+.customer-shell .about-flow-card,
 .customer-shell .deposit-step-flow button,
 .customer-shell .customer-step-flow button,
 .customer-shell .request-address-summary {
@@ -623,6 +627,12 @@ button:disabled {
 .customer-shell .my-menu-button small,
 .customer-shell .account-log-list span,
 .customer-shell .account-log-list small,
+.customer-shell .support-status-card span,
+.customer-shell .support-status-card small,
+.customer-shell .support-account-box span,
+.customer-shell .support-account-box small,
+.customer-shell .support-guide-list span,
+.customer-shell .about-flow-card span,
 .customer-shell .deposit-step-flow span,
 .customer-shell .deposit-step-flow small,
 .customer-shell .customer-step-flow span,
@@ -635,6 +645,10 @@ button:disabled {
 .customer-shell .mobile-action strong,
 .customer-shell .my-menu-button strong,
 .customer-shell .account-log-list strong,
+.customer-shell .support-status-card strong,
+.customer-shell .support-account-box strong,
+.customer-shell .support-guide-list strong,
+.customer-shell .about-flow-card strong,
 .customer-shell .deposit-step-flow strong,
 .customer-shell .customer-step-flow strong,
 .customer-shell .request-address-summary strong {
@@ -1690,6 +1704,12 @@ select:focus {
   color: #103f45;
 }
 
+.secondary-button.copied {
+  border-color: rgba(24, 210, 125, 0.5);
+  background: rgba(24, 210, 125, 0.14);
+  color: #0f766e;
+}
+
 .admin-shell .secondary-button {
   border-color: rgba(143, 215, 199, 0.28);
   background: rgba(143, 215, 199, 0.12);
@@ -1751,7 +1771,9 @@ select:focus {
 .ledger-workspace,
 .deposit-workspace,
 .conversion-page,
-.activity-search-page {
+.activity-search-page,
+.support-page,
+.about-page {
   display: grid;
   gap: 16px;
 }
@@ -2121,6 +2143,75 @@ select:focus {
 .account-log-list {
   display: grid;
   gap: 8px;
+}
+
+.support-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.34fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.support-status-card,
+.support-account-box,
+.support-guide-list div,
+.about-flow-card {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(16, 63, 69, 0.12);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 250, 247, 0.9)),
+    #ffffff;
+  padding: 12px;
+}
+
+.support-status-card span,
+.support-status-card small,
+.support-account-box span,
+.support-account-box small,
+.support-guide-list span,
+.about-flow-card span {
+  color: #60736a;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.support-status-card strong,
+.support-account-box strong,
+.support-guide-list strong,
+.about-flow-card strong {
+  color: #142b2b;
+}
+
+.support-workspace {
+  align-items: start;
+}
+
+.support-form,
+.support-guide {
+  min-height: 100%;
+}
+
+.support-guide-list,
+.about-flow-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.about-flow-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.support-ticket {
+  margin-top: 10px;
+}
+
+.support-ticket.success {
+  border-color: rgba(24, 210, 125, 0.28);
+  background: rgba(24, 210, 125, 0.12);
+  color: #0f766e;
 }
 
 .mobile-quick-jump {
@@ -3578,7 +3669,8 @@ tr:last-child td {
   }
 
   .funds-hero,
-  .my-profile-card {
+  .my-profile-card,
+  .support-hero {
     grid-template-columns: 1fr;
   }
 
@@ -3625,7 +3717,12 @@ tr:last-child td {
   .deposit-form-grid,
   .conversion-workspace,
   .withdrawal-workspace,
+  .support-workspace,
   .ledger-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .about-flow-grid {
     grid-template-columns: 1fr;
   }
 
