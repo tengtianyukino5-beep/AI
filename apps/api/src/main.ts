@@ -1,7 +1,11 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { AppModule } from './app.module';
+
+loadEnvFiles();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -43,6 +47,39 @@ async function bootstrap() {
   }
 
   console.log(`AI Arbitrage Web listening on ports: ${activePorts.join(', ')}`);
+}
+
+function loadEnvFiles() {
+  const candidates = [resolve(process.cwd(), '.env.production'), resolve(process.cwd(), '.env')];
+  for (const filePath of candidates) {
+    if (!existsSync(filePath)) {
+      continue;
+    }
+    const content = readFileSync(filePath, 'utf8');
+    content.split(/\r?\n/).forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) {
+        return;
+      }
+      const separatorIndex = trimmed.indexOf('=');
+      if (separatorIndex <= 0) {
+        return;
+      }
+      const key = trimmed.slice(0, separatorIndex).trim();
+      const rawValue = trimmed.slice(separatorIndex + 1).trim();
+      if (!key || process.env[key] !== undefined) {
+        return;
+      }
+      process.env[key] = unquoteEnvValue(rawValue);
+    });
+  }
+}
+
+function unquoteEnvValue(value: string) {
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    return value.slice(1, -1);
+  }
+  return value;
 }
 
 function getListenPorts() {

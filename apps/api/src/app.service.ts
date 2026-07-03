@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { Pool } from 'pg';
 
 type Asset = 'JPY' | 'USDT' | 'BTC' | 'ETH';
 type CryptoAsset = Exclude<Asset, 'JPY'>;
@@ -407,6 +408,33 @@ type FxCacheEntry = {
   provider: string;
 };
 
+interface PersistentBalanceSet {
+  customerId: string;
+  balances: AssetBalance[];
+}
+
+interface PersistentAppState {
+  version: 1;
+  savedAt: string;
+  customers: CustomerRecord[];
+  balances: PersistentBalanceSet[];
+  ledger: LedgerEntry[];
+  deposits: DepositOrder[];
+  withdrawals: WithdrawalOrder[];
+  depositAddresses: DepositAddressConfig[];
+  quotes: ConversionQuote[];
+  opportunities: SimulationOpportunity[];
+  orders: SimulationOrder[];
+  auditLogs: AuditLog[];
+  inviteRewards: InviteReward[];
+  supportMessages: SupportMessage[];
+  supportTickets: [string, string][];
+  vipRules: VipRule[];
+  exchanges: ExchangeConfig[];
+  marketCache: [string, MarketCacheEntry][];
+  usdJpyCache?: FxCacheEntry;
+}
+
 type ExecutionMode = 'manual' | 'auto';
 
 interface ExecutionRequest {
@@ -522,7 +550,7 @@ const allAdminPermissions: AdminPermission[] = [
 ];
 
 @Injectable()
-export class AppService {
+export class AppService implements OnModuleInit, OnModuleDestroy {
   private readonly customers = new Map<string, CustomerRecord>();
   private readonly tokens = new Map<string, TokenRecord>();
   private readonly emailCodes = new Map<string, string>();
@@ -581,6 +609,17 @@ export class AppService {
   private readonly orders: SimulationOrder[] = [];
   private readonly auditLogs: AuditLog[] = [];
   private readonly auditLogPath = resolve(process.env.AUDIT_LOG_PATH || '.runtime/audit-log.jsonl');
+  private readonly pgPool?: Pool;
+  private readonly appStateKey = process.env.APP_STATE_KEY || 'primary';
+  private readonly persistenceRequired = process.env.PERSISTENCE_REQUIRED === 'true';
+  private persistenceInitialized = false;
+  private persistenceTableReady = false;
+  private persistTimer?: NodeJS.Timeout;
+  private persistInFlight?: Promise<void>;
+  private persistAgainAfterFlight = false;
+  private lastStateRestoredAt?: string;
+  private lastStatePersistedAt?: string;
+  private lastPersistenceError?: string;
   private readonly inviteRewards: InviteReward[] = [];
   private readonly supportMessages: SupportMessage[] = [];
   private readonly supportTickets = new Map<string, string>();
@@ -659,13 +698,280 @@ export class AppService {
   ];
 
   constructor() {
+    this.pgPool = this.createPostgresPool();
     this.ensureAuditLogFile();
     this.exchanges.push(
       this.exchange('ex-okx', 'OKX', 'overseas', 'okx', 'https://www.okx.com/api/v5/market/ticker'),
       this.exchange('ex-htx', 'HTX', 'overseas', 'htx', 'https://api.huobi.pro/market/detail/merged'),
       this.exchange('ex-binance', 'Binance', 'overseas', 'binance', 'https://api.binance.com/api/v3/ticker/price'),
     );
-    this.seed();
+  }
+
+  async onModuleInit() {
+    const restored = await this.restoreStateFromPostgres();
+    if (!restored) {
+      this.seed();
+    }
+    this.persistenceInitialized = true;
+    if (!restored && this.pgPool) {
+      await this.persistStateNow('initial_state', this.persistenceRequired);
+    }
+  }
+
+  async onModuleDestroy() {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = undefined;
+    }
+    if (this.persistenceInitialized && this.pgPool) {
+      await this.flushPersistQueue();
+    }
+    await this.pgPool?.end();
+  }
+
+  private createPostgresPool() {
+    const connectionString = process.env.DATABASE_URL?.trim();
+    if (!connectionString) {
+      return undefined;
+    }
+    return new Pool({
+      connectionString,
+      ssl: this.postgresSsl(),
+      max: Math.max(1, Math.floor(this.numberEnv('DATABASE_POOL_MAX', 5))),
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
+  }
+
+  private postgresSsl() {
+    const mode = (process.env.DATABASE_SSL || process.env.PGSSLMODE || '').toLowerCase();
+    if (['true', '1', 'require', 'no-verify'].includes(mode)) {
+      return { rejectUnauthorized: false };
+    }
+    if (['verify-full', 'verify-ca'].includes(mode)) {
+      return true;
+    }
+    return undefined;
+  }
+
+  private async restoreStateFromPostgres() {
+    if (!this.pgPool) {
+      const message = 'DATABASE_URL is not configured. PostgreSQL persistence is disabled.';
+      this.lastPersistenceError = message;
+      if (this.persistenceRequired) {
+        throw new Error(message);
+      }
+      console.warn(message);
+      return false;
+    }
+
+    try {
+      await this.ensureStateTable();
+      const result = await this.pgPool.query<{ state: PersistentAppState | string }>(
+        'select state from app_state_snapshots where id = $1 limit 1',
+        [this.appStateKey],
+      );
+      const rawState = result.rows[0]?.state;
+      if (!rawState) {
+        console.log('No PostgreSQL app state snapshot found. Initial state will be persisted.');
+        return false;
+      }
+      const state = typeof rawState === 'string' ? (JSON.parse(rawState) as PersistentAppState) : rawState;
+      this.applyPersistentState(state);
+      this.lastStateRestoredAt = this.now();
+      this.lastPersistenceError = undefined;
+      console.log(`PostgreSQL app state restored: customers=${this.customers.size}, orders=${this.orders.length}`);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.lastPersistenceError = message;
+      console.error(`PostgreSQL app state restore failed: ${message}`);
+      if (this.persistenceRequired) {
+        throw error;
+      }
+      return false;
+    }
+  }
+
+  private async ensureStateTable() {
+    if (!this.pgPool || this.persistenceTableReady) {
+      return;
+    }
+    await this.pgPool.query(`
+      create table if not exists app_state_snapshots (
+        id text primary key,
+        version integer not null,
+        state jsonb not null,
+        saved_at timestamptz not null default now(),
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+
+      create index if not exists idx_app_state_snapshots_saved_at
+        on app_state_snapshots(saved_at desc);
+    `);
+    this.persistenceTableReady = true;
+  }
+
+  private applyPersistentState(state: PersistentAppState) {
+    if (!state || !Array.isArray(state.customers) || !Array.isArray(state.balances)) {
+      throw new Error('Invalid app state snapshot payload.');
+    }
+
+    this.customers.clear();
+    this.tokens.clear();
+    this.emailCodes.clear();
+    this.balances.clear();
+    this.quotes.clear();
+    this.supportTickets.clear();
+    this.marketCache.clear();
+    this.autoAiRuns.clear();
+
+    state.customers.forEach((customer) => {
+      this.customers.set(customer.id, { ...customer, aiRunning: false });
+    });
+
+    state.balances.forEach((entry) => {
+      const balanceMap = new Map<Asset, AssetBalance>();
+      entry.balances.forEach((balance) => balanceMap.set(balance.asset, { ...balance }));
+      balanceAssets.forEach((asset) => {
+        if (!balanceMap.has(asset)) {
+          balanceMap.set(asset, { asset, available: '0', frozen: '0', balanceVersion: 1 });
+        }
+      });
+      this.balances.set(entry.customerId, balanceMap);
+    });
+
+    [...this.customers.keys()].forEach((customerId) => {
+      if (!this.balances.has(customerId)) {
+        const balanceMap = new Map<Asset, AssetBalance>();
+        balanceAssets.forEach((asset) => balanceMap.set(asset, { asset, available: '0', frozen: '0', balanceVersion: 1 }));
+        this.balances.set(customerId, balanceMap);
+      }
+    });
+
+    this.replaceArray(this.ledger, state.ledger);
+    this.replaceArray(this.deposits, state.deposits);
+    this.replaceArray(this.withdrawals, state.withdrawals);
+    if (state.depositAddresses?.length) {
+      this.replaceArray(this.depositAddresses, state.depositAddresses);
+    }
+    if (state.vipRules?.length) {
+      this.replaceArray(this.vipRules, state.vipRules);
+    }
+    if (state.exchanges?.length) {
+      this.replaceArray(this.exchanges, state.exchanges);
+    }
+    this.replaceArray(this.opportunities, state.opportunities);
+    this.replaceArray(this.orders, state.orders);
+    this.replaceArray(this.auditLogs, state.auditLogs);
+    this.replaceArray(this.inviteRewards, state.inviteRewards);
+    this.replaceArray(this.supportMessages, state.supportMessages);
+
+    (state.quotes ?? []).forEach((quote) => {
+      if (!quote.expiresAt || new Date(quote.expiresAt).getTime() > Date.now()) {
+        this.quotes.set(quote.id, quote);
+      }
+    });
+    (state.supportTickets ?? []).forEach(([customerId, ticketNo]) => this.supportTickets.set(customerId, ticketNo));
+    (state.marketCache ?? []).forEach(([key, cache]) => this.marketCache.set(key, cache));
+    this.usdJpyCache = state.usdJpyCache;
+  }
+
+  private replaceArray<T>(target: T[], source: T[] | undefined) {
+    target.splice(0, target.length, ...(source ?? []));
+  }
+
+  private exportPersistentState(): PersistentAppState {
+    return {
+      version: 1,
+      savedAt: this.now(),
+      customers: [...this.customers.values()].map((customer) => ({ ...customer, aiRunning: false })),
+      balances: [...this.balances.entries()].map(([customerId, balanceMap]) => ({
+        customerId,
+        balances: [...balanceMap.values()].map((balance) => ({ ...balance })),
+      })),
+      ledger: [...this.ledger],
+      deposits: [...this.deposits],
+      withdrawals: [...this.withdrawals],
+      depositAddresses: [...this.depositAddresses],
+      quotes: [...this.quotes.values()],
+      opportunities: [...this.opportunities],
+      orders: [...this.orders],
+      auditLogs: [...this.auditLogs],
+      inviteRewards: [...this.inviteRewards],
+      supportMessages: [...this.supportMessages],
+      supportTickets: [...this.supportTickets.entries()],
+      vipRules: [...this.vipRules],
+      exchanges: [...this.exchanges],
+      marketCache: [...this.marketCache.entries()],
+      usdJpyCache: this.usdJpyCache,
+    };
+  }
+
+  private schedulePersist(_reason = 'state_change') {
+    if (!this.pgPool || !this.persistenceInitialized) {
+      return;
+    }
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+    }
+    const debounceMs = Math.max(50, Math.floor(this.numberEnv('APP_STATE_PERSIST_DEBOUNCE_MS', 300)));
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = undefined;
+      void this.flushPersistQueue();
+    }, debounceMs);
+    this.persistTimer.unref?.();
+  }
+
+  private async flushPersistQueue() {
+    if (!this.pgPool || !this.persistenceInitialized) {
+      return;
+    }
+    if (this.persistInFlight) {
+      this.persistAgainAfterFlight = true;
+      await this.persistInFlight;
+      return;
+    }
+    this.persistInFlight = this.persistStateNow('queued_state_change').finally(() => {
+      this.persistInFlight = undefined;
+    });
+    await this.persistInFlight;
+    if (this.persistAgainAfterFlight) {
+      this.persistAgainAfterFlight = false;
+      await this.flushPersistQueue();
+    }
+  }
+
+  private async persistStateNow(reason: string, throwOnError = false) {
+    if (!this.pgPool) {
+      return;
+    }
+    try {
+      await this.ensureStateTable();
+      const state = this.exportPersistentState();
+      await this.pgPool.query(
+        `
+          insert into app_state_snapshots (id, version, state, saved_at, updated_at)
+          values ($1, $2, $3::jsonb, now(), now())
+          on conflict (id) do update
+          set version = excluded.version,
+              state = excluded.state,
+              saved_at = excluded.saved_at,
+              updated_at = now()
+        `,
+        [this.appStateKey, state.version, JSON.stringify({ ...state, persistReason: reason })],
+      );
+      this.lastStatePersistedAt = this.now();
+      this.lastPersistenceError = undefined;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.lastPersistenceError = message;
+      console.error(`PostgreSQL app state persist failed: ${message}`);
+      if (throwOnError) {
+        throw error;
+      }
+    }
   }
 
   private exchange(
@@ -701,6 +1007,19 @@ export class AppService {
       status: 'ok' as const,
       service: 'AI Arbitrage Operations API',
       timestamp: new Date().toISOString(),
+      persistence: this.persistenceStatus(),
+    };
+  }
+
+  private persistenceStatus() {
+    return {
+      enabled: Boolean(this.pgPool),
+      ready: this.persistenceInitialized,
+      required: this.persistenceRequired,
+      appStateKey: this.appStateKey,
+      restoredAt: this.lastStateRestoredAt,
+      persistedAt: this.lastStatePersistedAt,
+      lastError: this.lastPersistenceError,
     };
   }
 
@@ -1125,6 +1444,7 @@ export class AppService {
       },
     };
     this.quotes.set(quote.id, quote);
+    this.schedulePersist('conversion.quote');
     return quote;
   }
 
@@ -1264,6 +1584,7 @@ export class AppService {
       exchanges: this.exchanges,
       inviteRewards: this.inviteRewards,
       auditLogs: this.auditLogs,
+      persistence: this.persistenceStatus(),
       reconciliation: this.reconciliation(),
     };
   }
@@ -2981,6 +3302,7 @@ export class AppService {
     };
     this.auditLogs.unshift(entry);
     this.persistAuditLog(entry);
+    this.schedulePersist(action);
   }
 
   private auditRiskLevel(action: string): AuditLog['riskLevel'] {

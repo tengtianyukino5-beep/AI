@@ -13,17 +13,18 @@ Implemented in this codebase:
 - Backend-enforced admin permissions.
 - JSONL persistent audit log.
 - PostgreSQL initial schema.
+- PostgreSQL `app_state_snapshots` persistence for full staging-flow restart tests.
 - Redis and PostgreSQL production compose file.
 - PostgreSQL backup script.
 - KYC gate, deposit review, withdrawal review, balance ledger, VIP rules, AI order records, and audit log screens.
 
 Not yet fully implemented:
 
-- Business data is still stored in memory by the application runtime.
-- PostgreSQL schema exists, but application read/write has not yet been switched fully to PostgreSQL.
+- Business logic still uses the existing in-process state model, then persists the complete app state to PostgreSQL.
+- Customer assets, ledger entries, deposits, withdrawals, KYC documents, VIP rules, and AI orders are not yet mapped to normalized transactional PostgreSQL tables.
 - Redis queue topology exists, but background jobs are not yet moved to Redis/BullMQ.
-- Password hashing and JWT refresh-token rotation are not yet fully implemented.
-- File uploads are still stored as data URLs in memory for testing; production needs object storage or controlled disk storage.
+- JWT refresh-token rotation is not yet fully implemented.
+- File uploads are stored in the PostgreSQL app-state snapshot as data URLs for staging tests; production needs object storage or controlled disk storage.
 - Real exchange order placement is still disabled until live execution credentials and legal approval are completed.
 
 ## Production Environment Variables
@@ -34,6 +35,7 @@ Mandatory before server testing:
 
 - `PUBLIC_APP_URL`
 - `DATABASE_URL`
+- `PERSISTENCE_REQUIRED=true`
 - `REDIS_URL`
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD`
@@ -97,10 +99,24 @@ Core tables:
 - `risk_reviews`
 - `compliance_checks`
 
+Current staging persistence:
+
+- `app_state_snapshots`
+
+The API writes the complete staging business state into `app_state_snapshots` when `DATABASE_URL` is configured. This is the restart-safe persistence layer for server testing before live exchange execution.
+
+Server verification:
+
+```bash
+curl http://127.0.0.1:3000/api/v1/health
+psql "$DATABASE_URL" -c "select id, version, saved_at, jsonb_array_length(state->'customers') as customers, jsonb_array_length(state->'orders') as orders from app_state_snapshots;"
+pm2 restart ai-arbitrage --update-env
+```
+
 Next engineering step:
 
 1. Add Prisma or another ORM/query layer.
-2. Move each in-memory collection in `apps/api/src/app.service.ts` to repository classes.
+2. Move customers, balances, KYC documents, deposits, withdrawals, ledger entries, VIP rules, and AI orders from the app-state snapshot into normalized repository classes.
 3. Use database transactions for balance-changing operations.
 4. Add idempotency keys for deposits, withdrawals, conversions, AI orders, and manual adjustments.
 5. Add balance version checks for optimistic locking.

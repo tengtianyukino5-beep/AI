@@ -120,9 +120,32 @@ Login with yuki888 / 123456
 
 ## Development Notes
 
-The current MVP uses an in-memory API store so the user experience can be tested quickly. Restarting the API resets demo data.
+The API keeps its existing fast in-process state model for business logic, and now persists the full business state to PostgreSQL when `DATABASE_URL` is configured.
 
-The development document already defines the production-grade direction:
+The PostgreSQL snapshot stores customers, balances, KYC status and document data, deposit and withdrawal orders, conversion quotes, AI opportunities and orders, VIP rules, deposit addresses, support messages, invite rewards, exchange settings, and audit logs. Restarting PM2 or the API restores that state from the `app_state_snapshots` table.
+
+Recommended staging environment variables:
+
+```bash
+DATABASE_URL=postgresql://ai_arbitrage:password@127.0.0.1:5432/ai_arbitrage
+PERSISTENCE_REQUIRED=true
+APP_STATE_KEY=primary
+APP_STATE_PERSIST_DEBOUNCE_MS=300
+```
+
+After deploying an update on the server:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+psql "$DATABASE_URL" -f infra/postgres/001_initial_schema.sql
+pm2 restart ai-arbitrage --update-env
+curl http://127.0.0.1:3000/api/v1/health
+```
+
+The API also reads `.env.production` and `.env` from the project root at startup, so PM2 can be restarted after updating the env file.
+
+The development document also defines the next production-grade direction:
 
 - PostgreSQL.
 - Prisma.
@@ -144,6 +167,7 @@ The repository now includes the first production-hardening layer:
 - Environment-variable admin credentials.
 - Backend-enforced admin permissions.
 - Password hashing and session expiration.
+- PostgreSQL app-state persistence for staging and server restart tests.
 - Persistent JSONL audit log.
 - PostgreSQL initial schema.
 - Redis/PostgreSQL production compose file.
@@ -160,4 +184,4 @@ scripts/backup-postgres.sh
 docs/production-hardening-checklist.md
 ```
 
-Important: the current runtime still keeps business data in memory. Use the production-hardening checklist before handling real customer assets.
+Important: this PostgreSQL app-state persistence is suitable for staging and full server-flow testing before real exchange execution. Before handling real customer assets, move the same data into normalized transactional PostgreSQL tables with row-level balance locking, immutable ledger writes, idempotency keys, and controlled file storage.
