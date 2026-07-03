@@ -93,7 +93,7 @@ type AdminState = {
   };
 };
 
-type CustomerPage = 'dashboard' | 'kyc' | 'deposit' | 'withdraw' | 'convert' | 'funds' | 'ai' | 'vip' | 'invite' | 'ledger' | 'my';
+type CustomerPage = 'dashboard' | 'kyc' | 'deposit' | 'withdraw' | 'convert' | 'funds' | 'ai' | 'vip' | 'invite' | 'ledger' | 'activity' | 'my';
 type AdminPage = 'overview' | 'customers' | 'kyc' | 'deposits' | 'withdrawals' | 'balances' | 'rules' | 'audit';
 type VipDraftKey = 'dailyLimit' | 'minBalanceJpy' | 'upgradeBalanceJpy' | 'highProfitProbability' | 'aiPower';
 type AdminRealtimeState = 'offline' | 'connecting' | 'live' | 'fallback';
@@ -376,12 +376,13 @@ function CustomerApp(props: {
     props.setPage(page);
   };
   const backTarget = customerBackTarget(props.page, lastPage);
+  const showCustomerHeader = props.page === 'dashboard' || props.page === 'my';
 
   return (
     <section className="layout">
       <aside className="sidebar customer-sidebar">
         <div className="profile-card">
-          <span className="avatar">{props.dashboard.customer.name.slice(0, 2).toUpperCase()}</span>
+          <span className="avatar">{customerInitials(props.dashboard.customer)}</span>
           <strong>{props.dashboard.customer.email}</strong>
           <small>{props.dashboard.customer.vipLevel} / {kycLabelJa(props.dashboard.customer.kycStatus)}</small>
         </div>
@@ -402,7 +403,7 @@ function CustomerApp(props: {
         </button>
       </aside>
       <div className="content">
-        <CustomerHeader dashboard={props.dashboard} />
+        {showCustomerHeader ? <CustomerHeader dashboard={props.dashboard} /> : null}
         <CustomerMobileToolbar page={props.page} onBack={() => navigate(backTarget)} />
         {props.page === 'dashboard' ? <CustomerDashboard dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'kyc' ? <KycPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
@@ -414,6 +415,7 @@ function CustomerApp(props: {
         {props.page === 'vip' ? <VipPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'invite' ? <InvitePage token={props.token} call={props.call} run={props.run} /> : null}
         {props.page === 'ledger' ? <LedgerPage dashboard={props.dashboard} /> : null}
+        {props.page === 'activity' ? <ActivitySearchPage dashboard={props.dashboard} /> : null}
         {props.page === 'my' ? <MyPage dashboard={props.dashboard} navigate={navigate} onLogout={props.onLogout} /> : null}
       </div>
       <CustomerBottomNav page={props.page} setPage={navigate} />
@@ -554,7 +556,7 @@ function CustomerHeader({ dashboard }: { dashboard: DashboardData }) {
     <section className="page-head">
       <div>
         <p className="eyebrow">東京時間 {dashboard.tokyoNow}</p>
-        <h1>こんにちは、{dashboard.customer.name}。</h1>
+        <h1>こんにちは、{customerDisplayNameJa(dashboard.customer)}。</h1>
         <p>AI分析、VIP設定、利用可能残高、東京自然日に基づいて裁定処理を管理します。利益と残高は資金台帳に即時反映されます。</p>
       </div>
       <div className="headline-side">
@@ -870,14 +872,13 @@ function DepositPage(props: {
   const [proofFileName, setProofFileName] = useState('');
   const [proofPreview, setProofPreview] = useState('');
   const [depositStep, setDepositStep] = useState<'address' | 'request'>('address');
-  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>(() => emptyHistoryFilter());
   const [selectedDeposit, setSelectedDeposit] = useState<DepositOrder | null>(null);
   const selectedNetwork = networkForAsset(asset, network);
   const depositAddress = depositAddressFor(props.dashboard.depositAddresses, asset, selectedNetwork);
   const enabledAddresses = props.dashboard.depositAddresses.filter((address) => address.enabled);
   const depositTotalJpy = sumValuationJpy(props.dashboard.deposits);
   const latestDepositAt = latestRecordTime(props.dashboard.deposits);
-  const filteredDeposits = filterDeposits(props.dashboard.deposits, historyFilter);
+  const depositRecords = props.dashboard.deposits;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1166,23 +1167,10 @@ function DepositPage(props: {
             { label: '申請時評価額', value: formatJpy(depositTotalJpy), note: latestDepositAt ? `最新 ${formatTime(latestDepositAt)}` : '記録なし' },
           ]}
         />
-        <HistoryFilterBar
-          assetOptions={assetFilterOptions(['USDT', 'BTC', 'ETH'])}
-          filter={historyFilter}
-          placeholder="受付番号、TxID、価格ソースで検索"
-          resultCount={filteredDeposits.length}
-          statusOptions={[
-            { value: 'pending', label: '確認中' },
-            { value: 'approved', label: '反映済み' },
-            { value: 'rejected', label: '差戻し' },
-          ]}
-          totalCount={props.dashboard.deposits.length}
-          onChange={setHistoryFilter}
-        />
         <MobileRecordPager
           className="mobile-records"
           emptyText="入金申請履歴はまだありません。"
-          items={filteredDeposits}
+          items={depositRecords}
           renderItem={(deposit) => (
             <button className="mobile-record-card" key={deposit.id} type="button" onClick={() => setSelectedDeposit(deposit)}>
               <div>
@@ -1199,7 +1187,7 @@ function DepositPage(props: {
         />
         <PaginatedTable
           columns={['受付番号', '資産', 'ネットワーク', '数量', '申請時評価額', '価格ソース', '状態', '証明', '申請時刻', '詳細']}
-          rows={filteredDeposits.map((deposit) => [
+          rows={depositRecords.map((deposit) => [
             <RecordCode key={`${deposit.id}-no`} primary={deposit.businessNo} secondary={deposit.depositAddressSnapshot ? 'アドレス確認済み' : 'アドレス未設定'} />,
             <AssetBadge key={`${deposit.id}-asset`} asset={deposit.asset} network={deposit.network} />,
             deposit.network ?? '-',
@@ -1233,12 +1221,11 @@ function WithdrawalPage(props: {
   const [destinationType, setDestinationType] = useState<'bank' | 'wallet'>('bank');
   const [destinationText, setDestinationText] = useState(() => withdrawalDestinationFor(props.dashboard.customer, 'JPY', 'Bank'));
   const [note, setNote] = useState('');
-  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>(() => emptyHistoryFilter());
   const [selectedWithdrawal, setSelectedWithdrawal] = useState<WithdrawalOrder | null>(null);
   const selectedBalance = balanceOf(props.dashboard.balances, asset);
   const withdrawalTotalJpy = sumValuationJpy(props.dashboard.withdrawals);
   const latestWithdrawalAt = latestRecordTime(props.dashboard.withdrawals);
-  const filteredWithdrawals = filterWithdrawals(props.dashboard.withdrawals, historyFilter);
+  const withdrawalRecords = props.dashboard.withdrawals;
 
   useEffect(() => {
     setDestinationText(withdrawalDestinationFor(props.dashboard.customer, asset, network));
@@ -1382,23 +1369,10 @@ function WithdrawalPage(props: {
             { label: '申請時評価額', value: formatJpy(withdrawalTotalJpy), note: latestWithdrawalAt ? `最新 ${formatTime(latestWithdrawalAt)}` : '記録なし' },
           ]}
         />
-        <HistoryFilterBar
-          assetOptions={assetFilterOptions(['JPY', 'USDT', 'BTC', 'ETH'])}
-          filter={historyFilter}
-          placeholder="受付番号、出金先、備考で検索"
-          resultCount={filteredWithdrawals.length}
-          statusOptions={[
-            { value: 'pending', label: '審査中' },
-            { value: 'approved', label: '出金完了' },
-            { value: 'rejected', label: '差戻し' },
-          ]}
-          totalCount={props.dashboard.withdrawals.length}
-          onChange={setHistoryFilter}
-        />
         <MobileRecordPager
           className="mobile-records"
           emptyText="出金履歴はまだありません。"
-          items={filteredWithdrawals}
+          items={withdrawalRecords}
           renderItem={(withdrawal) => (
             <button className="mobile-record-card" key={withdrawal.id} type="button" onClick={() => setSelectedWithdrawal(withdrawal)}>
               <div>
@@ -1415,7 +1389,7 @@ function WithdrawalPage(props: {
         />
         <PaginatedTable
           columns={['受付番号', '資産', 'ネットワーク', '数量', '申請時評価額', '価格ソース', '出金先', '状態', '申請時刻', '詳細']}
-          rows={filteredWithdrawals.map((withdrawal) => [
+          rows={withdrawalRecords.map((withdrawal) => [
             <RecordCode key={`${withdrawal.id}-no`} primary={withdrawal.businessNo} secondary={withdrawal.destinationType === 'bank' ? '銀行口座' : 'ウォレット'} />,
             <AssetBadge key={`${withdrawal.id}-asset`} asset={withdrawal.asset} network={withdrawal.network} />,
             withdrawal.network ?? '-',
@@ -1443,6 +1417,7 @@ function ConversionPage(props: {
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
   refresh: (token?: string) => Promise<DashboardData>;
 }) {
+  const [conversionStep, setConversionStep] = useState<'asset' | 'quote' | 'execute'>('asset');
   const [fromAsset, setFromAsset] = useState<Exclude<Asset, 'JPY'>>('ETH');
   const [amount, setAmount] = useState('0.2');
   const [quote, setQuote] = useState<ConversionQuote | null>(null);
@@ -1465,6 +1440,7 @@ function ConversionPage(props: {
     );
     if (result) {
       setQuote(result);
+      setConversionStep('quote');
     }
   }
 
@@ -1476,11 +1452,25 @@ function ConversionPage(props: {
     );
     if (result) {
       setQuote(null);
+      setConversionStep('asset');
       await props.refresh();
     }
   }
 
   return (
+    <section className="conversion-page">
+    <CustomerStepFlow
+      steps={[
+        { key: 'asset', label: '資産数量', note: `${fromAsset} / 利用可能 ${selectedBalance.available}` },
+        { key: 'quote', label: 'レート確認', note: quote ? `受取 ${formatJpy(quote.receivedJpy)}` : '見積取得待ち', disabled: !quote },
+        { key: 'execute', label: '交換実行', note: quote ? '最終確認' : '見積後に実行', disabled: !quote },
+      ]}
+      value={conversionStep}
+      onChange={(value) => {
+        if (value !== 'asset' && !quote) return;
+        setConversionStep(value);
+      }}
+    />
     <section className="two-column conversion-workspace">
       <form className="panel conversion-panel" onSubmit={createQuote}>
         <div className="panel-head">
@@ -1510,6 +1500,7 @@ function ConversionPage(props: {
                 setFromAsset(balance.asset as Exclude<Asset, 'JPY'>);
                 setAmount(String(Math.min(Number(balance.available), Number(amount) || Number(balance.available))));
                 setQuote(null);
+                setConversionStep('asset');
               }}
             >
               <span>{balance.asset}</span>
@@ -1520,7 +1511,7 @@ function ConversionPage(props: {
         </div>
         <label>
           交換元資産
-          <select value={fromAsset} onChange={(event) => { setFromAsset(event.target.value as Exclude<Asset, 'JPY'>); setQuote(null); }}>
+          <select value={fromAsset} onChange={(event) => { setFromAsset(event.target.value as Exclude<Asset, 'JPY'>); setQuote(null); setConversionStep('asset'); }}>
             <option value="ETH">ETH</option>
             <option value="BTC">BTC</option>
             <option value="USDT">USDT</option>
@@ -1528,7 +1519,7 @@ function ConversionPage(props: {
         </label>
         <label>
           数量
-          <input value={amount} onChange={(event) => setAmount(event.target.value)} />
+          <input value={amount} onChange={(event) => { setAmount(event.target.value); setQuote(null); setConversionStep('asset'); }} />
         </label>
         <div className="balance-hint">
           <span>利用可能</span>
@@ -1605,9 +1596,15 @@ function ConversionPage(props: {
               {fromAsset === 'USDT' ? 'USDT は USD -> JPY の順でJPY残高へ反映されます。' : `${fromAsset} は USDT -> USD -> JPY の順に換算され、JPY残高へ反映されます。`}
               レートは見積取得時点の市場データに基づき、有効期限内のみ確定できます。
             </p>
-            <button className="primary-button" type="button" onClick={execute}>
-              交換を実行
-            </button>
+            {conversionStep === 'execute' ? (
+              <button className="primary-button" type="button" onClick={execute}>
+                交換を実行
+              </button>
+            ) : (
+              <button className="primary-button" type="button" onClick={() => setConversionStep('execute')}>
+                交換内容を確認
+              </button>
+            )}
           </div>
         ) : (
           <div className="conversion-help">
@@ -1620,6 +1617,7 @@ function ConversionPage(props: {
           </div>
         )}
       </div>
+    </section>
     </section>
   );
 }
@@ -1758,11 +1756,11 @@ function AiPage(props: {
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
   refresh: (token?: string) => Promise<DashboardData>;
 }) {
+  const [aiStep, setAiStep] = useState<'scan' | 'opportunities' | 'orders'>('scan');
   const [lastOrder, setLastOrder] = useState<SimulationOrder | null>(null);
   const [selected, setSelected] = useState<SimulationOpportunity | null>(null);
   const [missedSelected, setMissedSelected] = useState<SimulationOpportunity | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<SimulationOrder | null>(null);
-  const [orderFilter, setOrderFilter] = useState<HistoryFilter>(() => emptyHistoryFilter());
   const [missedPage, setMissedPage] = useState(1);
   const autoDisabled = props.dashboard.customer.kycStatus !== 'approved';
   const dailyLimitReached = props.dashboard.todayUsed >= props.dashboard.todayLimit;
@@ -1773,7 +1771,7 @@ function AiPage(props: {
   const visibleMissed = props.dashboard.missedOpportunities.slice(missedStart, missedStart + missedPageSize);
   const orderProfitJpy = props.dashboard.orders.reduce((sum, order) => sum + Number(order.profitJpy || 0), 0);
   const latestOrderAt = latestRecordTime(props.dashboard.orders);
-  const filteredOrders = filterOrders(props.dashboard.orders, orderFilter);
+  const orderRecords = props.dashboard.orders;
   const noOpportunityMessage = opportunityEmptyStateText(props.dashboard);
   const missedPager =
     props.dashboard.missedOpportunities.length > missedPageSize ? (
@@ -1823,9 +1821,11 @@ function AiPage(props: {
     if (result) {
       if (result.order) {
         setLastOrder(result.order);
+        setAiStep('orders');
       }
       if (result.missedOpportunity) {
         setMissedSelected(result.missedOpportunity);
+        setAiStep('opportunities');
       }
       setSelected(null);
       await props.refresh();
@@ -1834,6 +1834,16 @@ function AiPage(props: {
 
   return (
     <section className="ai-workspace">
+      <CustomerStepFlow
+        steps={[
+          { key: 'scan', label: '市場監視', note: props.dashboard.customer.autoAiEnabled ? '自動AI稼働中' : '手動確認' },
+          { key: 'opportunities', label: '裁定機会', note: `${props.dashboard.opportunities.length}件 / 失敗${props.dashboard.missedOpportunities.length}件` },
+          { key: 'orders', label: '実行履歴', note: `${props.dashboard.orders.length}件` },
+        ]}
+        value={aiStep}
+        onChange={(value) => setAiStep(value)}
+      />
+      {aiStep === 'scan' ? (
       <div className="panel ai-command-panel">
         <div className="panel-head">
           <div>
@@ -1909,17 +1919,8 @@ function AiPage(props: {
         </div>
         <MarketTickerStrip tickers={props.dashboard.marketTickers.slice(0, 6)} />
       </div>
-      <div className="mobile-quick-jump" aria-label="AI裁定ページ内移動">
-        <button type="button" onClick={() => scrollToId('ai-opportunities')}>
-          機会
-        </button>
-        <button type="button" onClick={() => scrollToId('ai-orders')}>
-          注文履歴
-        </button>
-        <button type="button" onClick={() => scrollToId('ai-missed')}>
-          失敗記録
-        </button>
-      </div>
+      ) : null}
+      {aiStep === 'opportunities' ? (
       <div className="panel" id="ai-opportunities">
       <div className="panel-head">
         <div>
@@ -2095,6 +2096,10 @@ function AiPage(props: {
           </button>
         </div>
       ) : null}
+      </div>
+      ) : null}
+      {aiStep === 'orders' ? (
+      <div className="panel ai-orders-panel">
       {lastOrder ? (
         <div className="execution-result">
           <div className="panel-head">
@@ -2160,24 +2165,10 @@ function AiPage(props: {
             { label: '純利益合計', value: formatJpy(orderProfitJpy), note: latestOrderAt ? `最新 ${formatTime(latestOrderAt)}` : '記録なし' },
           ]}
         />
-        <HistoryFilterBar
-          assetOptions={assetFilterOptions(['BTC', 'ETH', 'XRP', 'SOL', 'DOT', 'DOGE', 'LTC', 'MONA', 'BCC', 'XLM'])}
-          filter={orderFilter}
-          placeholder="業務番号、取引所、理由で検索"
-          resultCount={filteredOrders.length}
-          statusOptions={[
-            { value: 'settled', label: '成功' },
-            { value: 'failed', label: '失敗' },
-            { value: 'executing', label: '処理中' },
-            { value: 'cancelled', label: '取消' },
-          ]}
-          totalCount={props.dashboard.orders.length}
-          onChange={setOrderFilter}
-        />
         <MobileRecordPager
           className="mobile-records"
           emptyText="注文履歴はまだありません。"
-          items={filteredOrders}
+          items={orderRecords}
           renderItem={(order) => (
             <button className="mobile-record-card" key={order.id} type="button" onClick={() => setSelectedOrder(order)}>
               <div>
@@ -2197,7 +2188,7 @@ function AiPage(props: {
         />
         <PaginatedTable
           columns={['業務番号', '結果', 'AI実行', '市場', '取引所', '資産', '元本', '粗利益', '控除', '純利益', '理由', '時刻', '詳細']}
-          rows={filteredOrders.map((order) => [
+          rows={orderRecords.map((order) => [
             <RecordCode key={`${order.id}-no`} primary={order.businessNo} secondary={order.opportunityId} />,
             <StatusBadge
               key={`${order.id}-status`}
@@ -2224,6 +2215,7 @@ function AiPage(props: {
         {selectedOrder ? <OrderDetailPanel order={selectedOrder} onClose={() => setSelectedOrder(null)} /> : null}
       </div>
       </div>
+      ) : null}
     </section>
   );
 }
@@ -2345,6 +2337,7 @@ function MyPage({
     { label: '入金', page: 'deposit', icon: Wallet, note: '資産を入金' },
     { label: '出金', page: 'withdraw', icon: Banknote, note: '出金申請' },
     { label: '記録', page: 'ledger', icon: History, note: '履歴確認' },
+    { label: '全履歴検索', page: 'activity', icon: Search, note: '入金・出金・AI注文' },
     { label: '招待', page: 'invite', icon: Gift, note: 'コード確認' },
     { label: '本人確認', page: 'kyc', icon: ShieldCheck, note: kycLabelJa(dashboard.customer.kycStatus) },
   ];
@@ -2357,7 +2350,7 @@ function MyPage({
         </div>
         <div>
           <p className="eyebrow">My Page</p>
-          <h2>{dashboard.customer.name}</h2>
+          <h2>{customerDisplayNameJa(dashboard.customer)}</h2>
           <p>{dashboard.customer.email}</p>
           <div className="my-status-row">
             <StatusBadge label={dashboard.customer.vipLevel} tone="success" />
@@ -2457,6 +2450,254 @@ function LedgerPage({ dashboard }: { dashboard: DashboardData }) {
           ])}
         />
       </section>
+    </section>
+  );
+}
+
+function ActivitySearchPage({ dashboard }: { dashboard: DashboardData }) {
+  type ActivityKind = 'deposit' | 'withdrawal' | 'order' | 'ledger';
+  type ActivityRecord = {
+    id: string;
+    kind: ActivityKind;
+    kindLabel: string;
+    businessNo: string;
+    title: string;
+    subtitle: string;
+    asset: string;
+    status: string;
+    statusLabel: string;
+    statusTone: 'default' | 'success' | 'warning' | 'danger';
+    amountText: string;
+    createdAt: string;
+    searchValues: Array<string | number | undefined>;
+  };
+
+  const [category, setCategory] = useState<'all' | ActivityKind>('all');
+  const [filter, setFilter] = useState<HistoryFilter>(() => emptyHistoryFilter());
+  const [selected, setSelected] = useState<{ kind: ActivityKind; id: string } | null>(null);
+  const records: ActivityRecord[] = [
+    ...dashboard.deposits.map((deposit) => ({
+      id: deposit.id,
+      kind: 'deposit' as const,
+      kindLabel: '入金',
+      businessNo: deposit.businessNo,
+      title: `${deposit.asset} ${deposit.amount}`,
+      subtitle: `${deposit.network ?? '-'} / ${deposit.priceSourceLabelJa ?? priceSourceLabelJa(deposit.priceSource)}`,
+      asset: deposit.asset,
+      status: deposit.status,
+      statusLabel: depositStatusJa(deposit.status),
+      statusTone: depositStatusTone(deposit.status),
+      amountText: deposit.valuationJpy ? formatJpy(deposit.valuationJpy) : `${deposit.amount} ${deposit.asset}`,
+      createdAt: deposit.createdAt,
+      searchValues: [
+        deposit.businessNo,
+        deposit.asset,
+        deposit.network,
+        deposit.amount,
+        deposit.proofText,
+        deposit.proofImageName,
+        deposit.depositAddressSnapshot,
+        deposit.priceSourceLabelJa,
+        deposit.marketExchange,
+        deposit.marketPair,
+        deposit.adminNote,
+      ],
+    })),
+    ...dashboard.withdrawals.map((withdrawal) => ({
+      id: withdrawal.id,
+      kind: 'withdrawal' as const,
+      kindLabel: '出金',
+      businessNo: withdrawal.businessNo,
+      title: withdrawal.asset === 'JPY' ? formatJpy(withdrawal.amount) : `${withdrawal.amount} ${withdrawal.asset}`,
+      subtitle: `${withdrawal.destinationType === 'bank' ? '銀行口座' : withdrawal.network ?? 'ウォレット'} / ${withdrawal.priceSourceLabelJa ?? priceSourceLabelJa(withdrawal.priceSource)}`,
+      asset: withdrawal.asset,
+      status: withdrawal.status,
+      statusLabel: withdrawalStatusJa(withdrawal.status),
+      statusTone: withdrawalStatusTone(withdrawal.status),
+      amountText: withdrawal.valuationJpy ? formatJpy(withdrawal.valuationJpy) : withdrawal.asset === 'JPY' ? formatJpy(withdrawal.amount) : `${withdrawal.amount} ${withdrawal.asset}`,
+      createdAt: withdrawal.createdAt,
+      searchValues: [
+        withdrawal.businessNo,
+        withdrawal.asset,
+        withdrawal.network,
+        withdrawal.amount,
+        withdrawal.destinationType,
+        withdrawal.destinationText,
+        withdrawal.note,
+        withdrawal.priceSourceLabelJa,
+        withdrawal.marketExchange,
+        withdrawal.marketPair,
+        withdrawal.adminNote,
+      ],
+    })),
+    ...dashboard.orders.map((order) => ({
+      id: order.id,
+      kind: 'order' as const,
+      kindLabel: 'AI注文',
+      businessNo: order.businessNo,
+      title: order.status === 'settled' ? `利益 ${formatJpy(order.profitJpy)}` : order.failureReasonJa ?? orderStatusJa(order.status),
+      subtitle: `${order.baseAsset ?? '-'} / ${order.buyExchange ?? '-'} -> ${order.sellExchange ?? '-'}`,
+      asset: order.baseAsset ?? '',
+      status: order.status,
+      statusLabel: order.status === 'settled' ? '成功' : order.status === 'failed' ? '失敗' : orderStatusJa(order.status),
+      statusTone: orderStatusTone(order.status),
+      amountText: formatJpy(order.profitJpy),
+      createdAt: order.createdAt,
+      searchValues: [
+        order.businessNo,
+        order.opportunityId,
+        order.status,
+        order.executionVenue,
+        order.marketSource,
+        order.buyExchange,
+        order.sellExchange,
+        order.baseAsset,
+        order.principalJpy,
+        order.profitJpy,
+        order.failureReasonJa,
+        order.failureDetailJa,
+        order.adminNoteJa,
+        order.aiSummaryJa,
+      ],
+    })),
+    ...dashboard.ledger.map((entry) => ({
+      id: entry.id,
+      kind: 'ledger' as const,
+      kindLabel: '資金',
+      businessNo: entry.businessNo,
+      title: entry.titleJa,
+      subtitle: entry.note,
+      asset: entry.asset,
+      status: entry.ledgerStatus,
+      statusLabel: ledgerStatusJa(entry.ledgerStatus),
+      statusTone: ledgerStatusTone(entry.ledgerStatus),
+      amountText: entry.asset === 'JPY' ? formatJpy(entry.amount) : `${entry.amount} ${entry.asset}`,
+      createdAt: entry.createdAt,
+      searchValues: [entry.businessNo, entry.asset, entry.ledgerType, entry.direction, entry.amount, entry.balanceAfter, entry.titleJa, entry.note],
+    })),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const filteredRecords = records.filter(
+    (record) =>
+      (category === 'all' || record.kind === category) &&
+      matchHistoryFilter(filter, {
+        status: record.status,
+        asset: record.asset,
+        createdAt: record.createdAt,
+        values: [record.kindLabel, record.businessNo, record.title, record.subtitle, record.amountText, ...record.searchValues],
+      }),
+  );
+  const selectedDeposit = selected?.kind === 'deposit' ? dashboard.deposits.find((item) => item.id === selected.id) : undefined;
+  const selectedWithdrawal = selected?.kind === 'withdrawal' ? dashboard.withdrawals.find((item) => item.id === selected.id) : undefined;
+  const selectedOrder = selected?.kind === 'order' ? dashboard.orders.find((item) => item.id === selected.id) : undefined;
+  const selectedLedger = selected?.kind === 'ledger' ? dashboard.ledger.find((item) => item.id === selected.id) : undefined;
+
+  return (
+    <section className="activity-search-page">
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Activity Search</p>
+            <h2>全履歴検索</h2>
+          </div>
+          <Search size={22} />
+        </div>
+        <HistorySummary
+          items={[
+            { label: '入金', value: dashboard.deposits.length, note: '入金申請' },
+            { label: '出金', value: dashboard.withdrawals.length, note: '出金申請' },
+            { label: 'AI注文', value: dashboard.orders.length, note: '成功 / 失敗' },
+            { label: '資金', value: dashboard.ledger.length, note: '残高履歴' },
+          ]}
+        />
+        <div className="segmented activity-type-tabs">
+          {[
+            { key: 'all', label: 'すべて' },
+            { key: 'deposit', label: '入金' },
+            { key: 'withdrawal', label: '出金' },
+            { key: 'order', label: 'AI注文' },
+            { key: 'ledger', label: '資金' },
+          ].map((item) => (
+            <button
+              className={category === item.key ? 'active' : ''}
+              key={item.key}
+              type="button"
+              onClick={() => setCategory(item.key as typeof category)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <HistoryFilterBar
+          assetOptions={assetFilterOptions(['JPY', 'USDT', 'BTC', 'ETH', 'XRP', 'SOL', 'DOT', 'DOGE', 'LTC', 'MONA', 'BCC', 'XLM'])}
+          filter={filter}
+          placeholder="業務番号、TxID、取引所、出金先、備考で検索"
+          resultCount={filteredRecords.length}
+          statusOptions={[
+            { value: 'pending', label: '処理中 / 確認中' },
+            { value: 'approved', label: '承認済み' },
+            { value: 'rejected', label: '差戻し' },
+            { value: 'settled', label: 'AI成功' },
+            { value: 'failed', label: '失敗' },
+            { value: 'posted', label: '残高反映済み' },
+            { value: 'reversed', label: '取消済み' },
+          ]}
+          totalCount={records.length}
+          onChange={setFilter}
+        />
+        <MobileRecordPager
+          className="mobile-records activity-records"
+          emptyText="条件に一致する履歴はありません。"
+          items={filteredRecords}
+          renderItem={(record) => (
+            <button className="mobile-record-card" key={`${record.kind}-${record.id}`} type="button" onClick={() => setSelected({ kind: record.kind, id: record.id })}>
+              <div>
+                <RecordCode primary={record.businessNo} secondary={record.kindLabel} />
+                <StatusBadge label={record.statusLabel} tone={record.statusTone} />
+              </div>
+              <div className="mobile-record-main">
+                <strong>{record.amountText}</strong>
+                <span>{record.title}</span>
+              </div>
+              <small>{record.subtitle} / {formatTime(record.createdAt)}</small>
+            </button>
+          )}
+        />
+        <PaginatedTable
+          columns={['区分', '業務番号', '内容', '資産', '金額', '状態', '時刻', '詳細']}
+          rows={filteredRecords.map((record) => [
+            record.kindLabel,
+            <RecordCode key={`${record.kind}-${record.id}-no`} primary={record.businessNo} secondary={record.subtitle} />,
+            record.title,
+            record.asset || '-',
+            record.amountText,
+            <StatusBadge key={`${record.kind}-${record.id}-status`} label={record.statusLabel} tone={record.statusTone} />,
+            formatTime(record.createdAt),
+            <button className="table-action-button" key={`${record.kind}-${record.id}-detail`} type="button" onClick={() => setSelected({ kind: record.kind, id: record.id })}>
+              詳細
+            </button>,
+          ])}
+        />
+      </section>
+      {selectedDeposit ? <DepositDetailPanel deposit={selectedDeposit} onClose={() => setSelected(null)} /> : null}
+      {selectedWithdrawal ? <WithdrawalDetailPanel withdrawal={selectedWithdrawal} onClose={() => setSelected(null)} /> : null}
+      {selectedOrder ? <OrderDetailPanel order={selectedOrder} onClose={() => setSelected(null)} /> : null}
+      {selectedLedger ? (
+        <CustomerDetailPanel eyebrow="Ledger Detail" title={`資金履歴 ${selectedLedger.businessNo}`} onClose={() => setSelected(null)}>
+          <DetailGrid
+            items={[
+              { label: '業務番号', value: selectedLedger.businessNo },
+              { label: '種別', value: selectedLedger.titleJa },
+              { label: '資産', value: selectedLedger.asset },
+              { label: '金額', value: selectedLedger.asset === 'JPY' ? formatJpy(selectedLedger.amount) : `${selectedLedger.amount} ${selectedLedger.asset}` },
+              { label: '残高', value: selectedLedger.asset === 'JPY' ? formatJpy(selectedLedger.balanceAfter) : `${selectedLedger.balanceAfter} ${selectedLedger.asset}` },
+              { label: '状態', value: <StatusBadge label={ledgerStatusJa(selectedLedger.ledgerStatus)} tone={ledgerStatusTone(selectedLedger.ledgerStatus)} /> },
+              { label: '時刻', value: formatFullTime(selectedLedger.createdAt) },
+              { label: '備考', value: selectedLedger.note || '-', wide: true },
+            ]}
+          />
+        </CustomerDetailPanel>
+      ) : null}
     </section>
   );
 }
@@ -3617,6 +3858,34 @@ function Metric({ icon: Icon, label, value, note }: { icon: typeof LayoutDashboa
   );
 }
 
+function CustomerStepFlow<T extends string>({
+  steps,
+  value,
+  onChange,
+}: {
+  steps: Array<{ key: T; label: string; note: string; disabled?: boolean }>;
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className={`customer-step-flow steps-${steps.length}`}>
+      {steps.map((step, index) => (
+        <button
+          className={value === step.key ? 'active' : ''}
+          disabled={step.disabled}
+          key={step.key}
+          type="button"
+          onClick={() => onChange(step.key)}
+        >
+          <span>STEP {index + 1}</span>
+          <strong>{step.label}</strong>
+          <small>{step.note}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function HistoryFilterBar({
   filter,
   onChange,
@@ -4131,15 +4400,11 @@ function normalizeSearch(value: string) {
   return value.trim().toLowerCase();
 }
 
-function scrollToId(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
 function customerBackTarget(page: CustomerPage, lastPage: CustomerPage): CustomerPage {
   if (['deposit', 'withdraw', 'convert'].includes(page)) {
     return lastPage === 'deposit' || lastPage === 'withdraw' || lastPage === 'convert' ? 'funds' : lastPage || 'funds';
   }
-  if (page === 'ledger') {
+  if (page === 'ledger' || page === 'activity') {
     return 'my';
   }
   if (page === 'kyc' || page === 'invite') {
@@ -4157,6 +4422,7 @@ function customerPageTitle(page: CustomerPage) {
     withdraw: '出金',
     convert: '資産交換',
     ledger: '履歴',
+    activity: '全履歴検索',
     my: 'マイページ',
     kyc: '本人確認',
     vip: 'VIP',
@@ -4173,7 +4439,7 @@ function isCustomerNavActive(navKey: CustomerPage, page: CustomerPage) {
     return page === 'vip';
   }
   if (navKey === 'my') {
-    return ['my', 'kyc', 'invite', 'ledger'].includes(page);
+    return ['my', 'kyc', 'invite', 'ledger', 'activity'].includes(page);
   }
   return navKey === page;
 }
@@ -4372,6 +4638,25 @@ function adminRealtimeLabel(state: AdminRealtimeState) {
     fallback: '轮询兜底中',
   };
   return labels[state];
+}
+
+function customerDisplayNameJa(customer: CustomerProfile) {
+  const rawName = (customer.name || customer.email.split('@')[0] || 'お客様').trim();
+  if (customer.kycStatus !== 'approved') {
+    return rawName;
+  }
+  const normalized = rawName.replace(/様$/u, '').trim();
+  const parts = normalized.split(/[\s　]+/u).filter(Boolean);
+  const surname = parts[0] ?? normalized;
+  if (/^[A-Za-z0-9._-]+$/u.test(surname)) {
+    return `${surname.split(/[._-]/u)[0] || surname}様`;
+  }
+  return `${surname.length > 3 ? surname.slice(0, 2) : surname}様`;
+}
+
+function customerInitials(customer: CustomerProfile) {
+  const displayName = customerDisplayNameJa(customer).replace(/様$/u, '');
+  return displayName.slice(0, 2).toUpperCase();
 }
 
 function kycLabelJa(status: CustomerProfile['kycStatus']) {

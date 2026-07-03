@@ -608,6 +608,7 @@ button:disabled {
 .customer-shell .my-menu-button,
 .customer-shell .account-log-list div,
 .customer-shell .deposit-step-flow button,
+.customer-shell .customer-step-flow button,
 .customer-shell .request-address-summary {
   border-color: rgba(80, 129, 181, 0.24);
   background:
@@ -624,6 +625,8 @@ button:disabled {
 .customer-shell .account-log-list small,
 .customer-shell .deposit-step-flow span,
 .customer-shell .deposit-step-flow small,
+.customer-shell .customer-step-flow span,
+.customer-shell .customer-step-flow small,
 .customer-shell .request-address-summary span {
   color: rgba(216, 230, 243, 0.66);
 }
@@ -633,11 +636,13 @@ button:disabled {
 .customer-shell .my-menu-button strong,
 .customer-shell .account-log-list strong,
 .customer-shell .deposit-step-flow strong,
+.customer-shell .customer-step-flow strong,
 .customer-shell .request-address-summary strong {
   color: #f4f9ff;
 }
 
-.customer-shell .deposit-step-flow button.active {
+.customer-shell .deposit-step-flow button.active,
+.customer-shell .customer-step-flow button.active {
   border-color: rgba(24, 210, 125, 0.56);
   background:
     radial-gradient(circle at top right, rgba(24, 210, 125, 0.18), transparent 42%),
@@ -1734,7 +1739,9 @@ select:focus {
 .funds-workspace,
 .my-page,
 .ledger-workspace,
-.deposit-workspace {
+.deposit-workspace,
+.conversion-page,
+.activity-search-page {
   display: grid;
   gap: 16px;
 }
@@ -1924,9 +1931,33 @@ select:focus {
   gap: 10px;
 }
 
+.customer-step-flow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.customer-step-flow.steps-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .deposit-step-flow button {
   display: grid;
   gap: 4px;
+  border: 1px solid rgba(16, 63, 69, 0.12);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 250, 247, 0.9)),
+    #ffffff;
+  color: #142b2b;
+  padding: 12px;
+  text-align: left;
+}
+
+.customer-step-flow button {
+  display: grid;
+  gap: 4px;
+  min-height: 88px;
   border: 1px solid rgba(16, 63, 69, 0.12);
   border-radius: 8px;
   background:
@@ -1945,8 +1976,23 @@ select:focus {
   box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.16);
 }
 
+.customer-step-flow button.active {
+  border-color: rgba(15, 118, 110, 0.42);
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.16), rgba(255, 255, 255, 0.94)),
+    #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.16);
+}
+
+.customer-step-flow button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
 .deposit-step-flow span,
 .deposit-step-flow small,
+.customer-step-flow span,
+.customer-step-flow small,
 .request-address-summary span {
   color: #60736a;
   font-size: 12px;
@@ -1954,6 +2000,7 @@ select:focus {
 }
 
 .deposit-step-flow strong,
+.customer-step-flow strong,
 .request-address-summary strong {
   color: #142b2b;
 }
@@ -2026,6 +2073,14 @@ select:focus {
 
 .funds-segmented {
   width: fit-content;
+}
+
+.activity-type-tabs {
+  width: 100%;
+}
+
+.activity-type-tabs button {
+  min-width: 88px;
 }
 
 .my-profile-card {
@@ -3438,6 +3493,29 @@ tr:last-child td {
     min-width: 0;
   }
 
+  .customer-step-flow,
+  .customer-step-flow.steps-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .customer-step-flow button {
+    min-height: 76px;
+    border-radius: 12px;
+    padding: 9px 7px;
+  }
+
+  .customer-step-flow span,
+  .customer-step-flow small {
+    font-size: 10px;
+    line-height: 1.25;
+  }
+
+  .customer-step-flow strong {
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
   input,
   select,
   textarea,
@@ -3609,7 +3687,8 @@ tr:last-child td {
   .customer-shell .deposit-history-panel .paged-table,
   .customer-shell .withdrawal-workspace .paged-table,
   .customer-shell #ai-orders .paged-table,
-  .customer-shell .ledger-workspace .paged-table {
+  .customer-shell .ledger-workspace .paged-table,
+  .customer-shell .activity-search-page .paged-table {
     display: none;
   }
 
