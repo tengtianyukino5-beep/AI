@@ -62,6 +62,19 @@ export class AppController {
     return this.safe(() => this.appService.toggleAutoAi(this.customer(authorization), body.enabled));
   }
 
+  @Get('customer/support')
+  supportConversation(@Headers('authorization') authorization?: string) {
+    return this.safe(() => this.appService.supportConversation(this.customer(authorization)));
+  }
+
+  @Post('customer/support/messages')
+  sendSupportMessage(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { category?: string; message?: string },
+  ) {
+    return this.safe(() => this.appService.sendSupportMessage(this.customer(authorization), body));
+  }
+
   @Post('customer/deposits')
   createDeposit(
     @Headers('authorization') authorization: string | undefined,

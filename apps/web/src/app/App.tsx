@@ -43,12 +43,14 @@ import type {
   MarketTicker,
   SimulationOpportunity,
   SimulationOrder,
+  SupportConversation,
   VipLevel,
   VipRule,
   WithdrawalOrder,
 } from '@twodays/shared';
 
 const API_BASE = '/api/v1';
+const minimumAiBalanceJpy = 10000;
 
 type CustomerSession = {
   token: string;
@@ -432,7 +434,7 @@ function CustomerApp(props: {
         {props.page === 'invite' ? <InvitePage token={props.token} call={props.call} run={props.run} /> : null}
         {props.page === 'ledger' ? <LedgerPage dashboard={props.dashboard} /> : null}
         {props.page === 'activity' ? <ActivitySearchPage dashboard={props.dashboard} /> : null}
-        {props.page === 'support' ? <SupportPage dashboard={props.dashboard} /> : null}
+        {props.page === 'support' ? <SupportPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} /> : null}
         {props.page === 'about' ? <PlatformAboutPage /> : null}
         {props.page === 'my' ? <MyPage dashboard={props.dashboard} navigate={navigate} onLogout={props.onLogout} /> : null}
       </div>
@@ -646,7 +648,8 @@ function CustomerDashboard(props: {
 }) {
   const { dashboard } = props;
   const jpy = balanceOf(dashboard.balances, 'JPY');
-  const autoDisabled = dashboard.customer.kycStatus !== 'approved';
+  const autoLockReason = autoAiLockReasonJa(dashboard);
+  const autoDisabled = Boolean(autoLockReason);
 
   async function toggleAuto() {
     const next = !dashboard.customer.autoAiEnabled;
@@ -677,7 +680,7 @@ function CustomerDashboard(props: {
           icon={Gauge}
           label="AI算力"
           value={aiPowerScore(dashboard)}
-          note={autoDisabled ? '本人確認後に利用可能' : `信用${dashboard.customer.creditScore ?? 80} / 残り${Math.max(0, dashboard.todayLimit - dashboard.todayUsed)}回`}
+          note={autoDisabled ? autoLockReason : `信用${dashboard.customer.creditScore ?? 80} / 残り${Math.max(0, dashboard.todayLimit - dashboard.todayUsed)}回`}
         />
       </section>
 
@@ -692,7 +695,7 @@ function CustomerDashboard(props: {
               {dashboard.customer.autoAiEnabled ? 'ON' : 'OFF'}
             </button>
           </div>
-          <p>{autoDisabled ? '本人確認が完了していないため、自動AI裁定を利用できません。' : 'VIP設定、東京自然日、利用可能残高に基づいてAI裁定を自動実行します。'}</p>
+          <p>{autoDisabled ? autoLockReason : 'VIP設定、東京自然日、利用可能残高に基づいてAI裁定を自動実行します。'}</p>
           {dashboard.autoAiRuntime.stage === 'settled' ? (
             <div className="runtime-banner">
               <CheckCircle2 size={18} />
@@ -1777,7 +1780,8 @@ function AiPage(props: {
   const [missedSelected, setMissedSelected] = useState<SimulationOpportunity | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<SimulationOrder | null>(null);
   const [missedPage, setMissedPage] = useState(1);
-  const autoDisabled = props.dashboard.customer.kycStatus !== 'approved';
+  const autoLockReason = autoAiLockReasonJa(props.dashboard);
+  const autoDisabled = Boolean(autoLockReason);
   const dailyLimitReached = props.dashboard.todayUsed >= props.dashboard.todayLimit;
   const missedPageSize = 10;
   const missedTotalPages = Math.max(1, Math.ceil(props.dashboard.missedOpportunities.length / missedPageSize));
@@ -1870,12 +1874,18 @@ function AiPage(props: {
         <div className="ai-start-row">
           <div>
             <strong>{props.dashboard.customer.autoAiEnabled ? '自動AI裁定 稼働中' : '自動AI裁定 停止中'}</strong>
-            <span>{props.dashboard.autoAiRuntime.nextRunHintJa}</span>
+            <span>{autoDisabled ? autoLockReason : props.dashboard.autoAiRuntime.nextRunHintJa}</span>
           </div>
           <button className={props.dashboard.customer.autoAiEnabled ? 'toggle on' : 'toggle'} disabled={autoDisabled} type="button" onClick={toggleAuto}>
             {props.dashboard.customer.autoAiEnabled ? 'ON' : 'OFF'}
           </button>
         </div>
+        {autoDisabled ? (
+          <div className="runtime-banner light warning-runtime">
+            <Lock size={18} />
+            <span>{autoLockReason}</span>
+          </div>
+        ) : null}
         {props.dashboard.autoAiRuntime.lastOrderNo ? (
           <div className="runtime-banner light">
             <CheckCircle2 size={18} />
@@ -2425,38 +2435,82 @@ function MyPage({
   );
 }
 
-function SupportPage({ dashboard }: { dashboard: DashboardData }) {
+function SupportPage(props: {
+  dashboard: DashboardData;
+  token: string;
+  call: <T>(path: string, options?: RequestInit, token?: string) => Promise<T>;
+  run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
+}) {
   const [category, setCategory] = useState('入出金について');
   const [message, setMessage] = useState('');
-  const [sentNo, setSentNo] = useState('');
+  const [conversation, setConversation] = useState<SupportConversation | null>(null);
+  const [inlineNotice, setInlineNotice] = useState('');
   const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const messages = conversation?.messages ?? [];
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    props
+      .call<SupportConversation>('/customer/support', {}, props.token)
+      .then((result) => {
+        if (active) {
+          setConversation(result);
+          setInlineNotice('');
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setInlineNotice('サポートAPIへの接続を確認しています。しばらくしてから再度お試しください。');
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [props.token]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!message.trim()) {
-      setSentNo('内容を入力してください。');
+      setInlineNotice('お問い合わせ内容を入力してください。');
       return;
     }
     setSending(true);
-    window.setTimeout(() => {
-      setSentNo(`SUP-${Date.now().toString(36).toUpperCase().slice(-8)}`);
+    const result = await props.run(
+      () =>
+        props.call<SupportConversation>(
+          '/customer/support/messages',
+          { method: 'POST', body: JSON.stringify({ category, message }) },
+          props.token,
+        ),
+      'サポートへ送信しました。',
+    );
+    if (result) {
+      setConversation(result);
+      setInlineNotice(`受付番号：${result.ticketNo}`);
       setMessage('');
-      setSending(false);
-    }, 650);
+    }
+    setSending(false);
   }
 
   return (
     <section className="support-page">
       <section className="panel support-hero">
         <div>
-          <p className="eyebrow">Online Support</p>
+          <p className="eyebrow">Support API</p>
           <h2>オンラインサポート</h2>
-          <p>入出金、本人確認、資産交換、AI裁定の操作について、東京時間を基準にサポート受付を行います。</p>
+          <p>入出金、本人確認、資産交換、AI裁定の操作について、サポートAPIで会話履歴を管理します。</p>
         </div>
         <div className="support-status-card">
-          <span>受付状態</span>
-          <strong>受付中</strong>
-          <small>通常返信目安 10-30分</small>
+          <span>API状態</span>
+          <strong>{loading ? '接続確認中' : '接続済み'}</strong>
+          <small>{conversation?.ticketNo ? `受付番号 ${conversation.ticketNo}` : '新規受付を準備中'}</small>
         </div>
       </section>
 
@@ -2480,66 +2534,126 @@ function SupportPage({ dashboard }: { dashboard: DashboardData }) {
             </select>
           </label>
           <label>
-            お問い合わせ内容
+            メッセージ
             <textarea
               rows={6}
               value={message}
               onChange={(event) => setMessage(event.target.value)}
-              placeholder="確認したい内容、業務番号、対象資産などを入力してください。"
+              placeholder="確認したい内容、業務番号、対象資産、操作日時などを入力してください。"
             />
           </label>
           <div className="support-account-box">
             <span>アカウント</span>
-            <strong>{customerDisplayNameJa(dashboard.customer)}</strong>
-            <small>{dashboard.customer.email}</small>
+            <strong>{customerDisplayNameJa(props.dashboard.customer)}</strong>
+            <small>{props.dashboard.customer.email}</small>
           </div>
           <button className="primary-button" disabled={sending} type="submit">
             {sending ? '送信中...' : '送信する'}
           </button>
-          {sentNo ? (
-            <div className={sentNo.startsWith('SUP-') ? 'runtime-banner light support-ticket success' : 'runtime-banner light support-ticket warning-runtime'}>
-              {sentNo.startsWith('SUP-') ? <CheckCircle2 size={18} /> : <Clock3 size={18} />}
-              <span>{sentNo.startsWith('SUP-') ? `受付番号：${sentNo}` : sentNo}</span>
+          {inlineNotice ? (
+            <div className={inlineNotice.startsWith('受付番号') ? 'runtime-banner light support-ticket success' : 'runtime-banner light support-ticket warning-runtime'}>
+              {inlineNotice.startsWith('受付番号') ? <CheckCircle2 size={18} /> : <Clock3 size={18} />}
+              <span>{inlineNotice}</span>
             </div>
           ) : null}
         </form>
 
-        <aside className="panel support-guide">
+        <aside className="panel support-chat-panel">
           <div className="panel-head">
             <div>
-              <p className="eyebrow">Guide</p>
-              <h2>よくある確認項目</h2>
+              <p className="eyebrow">Conversation</p>
+              <h2>サポート会話</h2>
             </div>
-            <Info size={22} />
+            <MessageCircle size={22} />
           </div>
-          <div className="support-guide-list">
-            <div>
-              <strong>入金が反映されない場合</strong>
-              <span>業務番号、資産、ネットワーク、送金TxID、証明写真の状態を確認してください。</span>
-            </div>
-            <div>
-              <strong>出金申請について</strong>
-              <span>出金先、ネットワーク、審査状態、管理メモを履歴詳細で確認できます。</span>
-            </div>
-            <div>
-              <strong>AI裁定について</strong>
-              <span>成功・失敗の理由、価格差、控除、純利益は注文詳細で確認できます。</span>
-            </div>
+          <div className="support-chat-list">
+            {loading ? <EmptyState text="サポートAPIへ接続しています。" /> : null}
+            {!loading && !messages.length ? <EmptyState text="まだメッセージはありません。お問い合わせを送信すると、この画面に会話履歴が表示されます。" /> : null}
+            {messages.map((item) => (
+              <article className={`support-message ${item.sender}`} key={item.id}>
+                <div>
+                  <strong>{item.sender === 'customer' ? 'お客様' : 'サポート'}</strong>
+                  <span>{formatTime(item.createdAt)}</span>
+                </div>
+                <p>{item.message}</p>
+                <small>
+                  {item.category} / {item.ticketNo}
+                </small>
+              </article>
+            ))}
           </div>
         </aside>
+      </section>
+
+      <section className="panel support-guide">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Guide</p>
+            <h2>お問い合わせ時の確認項目</h2>
+          </div>
+          <Info size={22} />
+        </div>
+        <div className="support-guide-list">
+          <div>
+            <strong>入出金</strong>
+            <span>業務番号、資産、ネットワーク、送金TxID、出金先、証明画像、審査状態を確認します。</span>
+          </div>
+          <div>
+            <strong>資産交換</strong>
+            <span>対象資産、数量、確認レート、価格ソース、API更新時刻、受取JPY見込額を確認します。</span>
+          </div>
+          <div>
+            <strong>AI裁定</strong>
+            <span>取引所、通貨ペア、価格差、手数料、スリッページ、成功・失敗理由を確認します。</span>
+          </div>
+        </div>
       </section>
     </section>
   );
 }
 
 function PlatformAboutPage() {
+  const flowItems = [
+    { title: '1. アカウント登録', text: 'メール認証後、マイページから本人確認を提出します。登録後の利用状況はすべてアカウント単位で管理されます。' },
+    { title: '2. 本人確認', text: '氏名と運転免許証表面写真を照合し、承認後に入出金、資産交換、AI裁定が利用できます。' },
+    { title: '3. 資産入金', text: 'ETH、BTC、USDTのネットワーク別入金アドレスを確認し、送金証明を提出して審査を受けます。' },
+    { title: '4. 資産交換', text: '保有暗号資産を公開価格データとUSD/JPYレートでJPY評価し、確認後にJPY残高へ反映します。' },
+    { title: '5. AI裁定', text: '複数取引所の価格差から、手数料、スリッページ、リスクバッファを控除した純利益を判定します。' },
+    { title: '6. 出金と履歴', text: '出金申請、審査結果、注文履歴、資金履歴、監査情報を業務番号で追跡できます。' },
+  ];
+  const operationItems = [
+    {
+      title: '利益が発生する仕組み',
+      text: '取引所Aの買付参考価格と取引所Bの売却参考価格に差がある場合、その差額から片道手数料、滑り、リスクバッファを差し引き、純利益が残る機会のみをAI裁定候補として表示します。',
+    },
+    {
+      title: '価格データと更新',
+      text: '主要取引所の公開価格APIを優先し、バックアップ価格と手動レートを段階的に参照します。価格ソース、API更新時刻、対象ペアは履歴詳細で確認できます。',
+    },
+    {
+      title: '残高と資金台帳',
+      text: '入金承認、資産交換、AI裁定利益、出金承認は資金台帳へ記録され、JPY、BTC、ETH、USDTの残高に反映されます。金額は業務番号ごとに追跡できます。',
+    },
+    {
+      title: 'VIPと利用回数',
+      text: 'VIPランクにより東京自然日の利用可能回数が決まります。管理画面で回数、成功率、AI算力、アップグレード条件を設定し、前台表示へ反映します。',
+    },
+    {
+      title: '審査とリスク管理',
+      text: '本人確認、入金証明、出金先、残高不足、失敗裁定、管理者メモを確認し、不正確な申請やリスクのある処理は承認前に停止できます。',
+    },
+    {
+      title: '東京時間での運営',
+      text: '利用回数、日次収益、履歴集計はAsia/Tokyoの自然日 00:00:00 - 23:59:59 を基準として集計されます。',
+    },
+  ];
   return (
     <section className="about-page">
       <section className="panel support-hero">
         <div>
           <p className="eyebrow">Platform</p>
           <h2>プラットフォームについて</h2>
-          <p>本人確認、資産管理、AI裁定、入出金申請、履歴確認を一つのアカウントで管理するための運営基盤です。</p>
+          <p>本人確認、資産管理、AI裁定、入出金申請、履歴確認を一つのアカウントで管理する金融オペレーション基盤です。</p>
         </div>
         <div className="support-status-card">
           <span>基準時間</span>
@@ -2557,14 +2671,25 @@ function PlatformAboutPage() {
           <Info size={22} />
         </div>
         <div className="about-flow-grid">
-          {[
-            { title: '1. アカウント登録', text: 'メール認証後、マイページから本人確認を提出します。' },
-            { title: '2. 本人確認', text: '運転免許証表面写真と氏名を確認し、承認後に各機能が利用できます。' },
-            { title: '3. 資産入金', text: '資産とネットワークを選択し、表示された入金アドレスへ送金します。' },
-            { title: '4. 資産交換', text: '保有暗号資産をJPYへ交換し、VIP条件やAI裁定の利用残高に反映します。' },
-            { title: '5. AI裁定', text: '市場データ、手数料、スリッページ、リスクバッファをもとに注文結果を記録します。' },
-            { title: '6. 履歴確認', text: '入金、出金、AI注文、資金履歴は詳細画面と全履歴検索で確認できます。' },
-          ].map((item) => (
+          {flowItems.map((item) => (
+            <div className="about-flow-card" key={item.title}>
+              <strong>{item.title}</strong>
+              <span>{item.text}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Operation Model</p>
+            <h2>運営モデル</h2>
+          </div>
+          <LineChart size={22} />
+        </div>
+        <div className="about-flow-grid about-detail-grid">
+          {operationItems.map((item) => (
             <div className="about-flow-card" key={item.title}>
               <strong>{item.title}</strong>
               <span>{item.text}</span>
@@ -4732,6 +4857,17 @@ function aiPowerScore(dashboard: DashboardData) {
   return rule.aiPower;
 }
 
+function autoAiLockReasonJa(dashboard: DashboardData) {
+  if (dashboard.customer.kycStatus !== 'approved') {
+    return '本人確認が完了していないため、自動AI裁定を開始できません。';
+  }
+  const jpyBalance = Number(balanceOf(dashboard.balances, 'JPY').available);
+  if (!Number.isFinite(jpyBalance) || jpyBalance < minimumAiBalanceJpy) {
+    return `JPY利用可能残高が不足しています。自動AI裁定を開始するには最低 ${formatJpy(minimumAiBalanceJpy)} が必要です。`;
+  }
+  return '';
+}
+
 function opportunityEmptyStateText(dashboard: DashboardData) {
   if (dashboard.customer.kycStatus !== 'approved') {
     return '本人確認が完了すると、AI裁定機会を確認できます。';
@@ -4743,8 +4879,8 @@ function opportunityEmptyStateText(dashboard: DashboardData) {
     return '本日の利用回数は完了しました。東京時間の翌日から再度利用できます。';
   }
   const jpyBalance = Number(balanceOf(dashboard.balances, 'JPY').available);
-  if (!Number.isFinite(jpyBalance) || jpyBalance < 10000) {
-    return `JPY利用可能残高が不足しています。現在 ${formatJpy(jpyBalance)}、AI裁定には最低 ${formatJpy(10000)} が必要です。`;
+  if (!Number.isFinite(jpyBalance) || jpyBalance < minimumAiBalanceJpy) {
+    return `JPY利用可能残高が不足しています。現在 ${formatJpy(jpyBalance)}、AI裁定には最低 ${formatJpy(minimumAiBalanceJpy)} が必要です。`;
   }
   if (dashboard.marketScanner.slowestIntervalSeconds < dashboard.marketScanner.opportunityThresholdSeconds) {
     return `取引所APIの検出秒数が ${dashboard.marketScanner.opportunityThresholdSeconds}秒未満のため、裁定機会は監視のみです。`;

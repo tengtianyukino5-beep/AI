@@ -321,6 +321,23 @@ export interface TradingRuntimeStatus {
   messageZh: string;
 }
 
+export interface SupportMessage {
+  id: string;
+  ticketNo: string;
+  customerId: string;
+  sender: 'customer' | 'support';
+  category: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface SupportConversation {
+  ticketNo: string;
+  status: 'open' | 'answered';
+  messages: SupportMessage[];
+  updatedAt?: string;
+}
+
 export interface DashboardData {
   customer: CustomerProfile;
   balances: AssetBalance[];

@@ -358,6 +358,23 @@ interface TokenRecord {
   role: 'customer' | 'admin';
 }
 
+interface SupportMessage {
+  id: string;
+  ticketNo: string;
+  customerId: string;
+  sender: 'customer' | 'support';
+  category: string;
+  message: string;
+  createdAt: string;
+}
+
+interface SupportConversation {
+  ticketNo: string;
+  status: 'open' | 'answered';
+  messages: SupportMessage[];
+  updatedAt?: string;
+}
+
 type MarketCacheEntry = {
   bidJpy: number;
   askJpy: number;
@@ -473,6 +490,7 @@ const arbitrageSlippageRate = 0.001;
 const arbitrageRiskBufferRate = 0.0005;
 const defaultSuccessRatePercent = 90;
 const opportunityThresholdSeconds = 0.01;
+const minimumAiBalanceJpy = 10000;
 
 @Injectable()
 export class AppService {
@@ -534,6 +552,8 @@ export class AppService {
   private readonly orders: SimulationOrder[] = [];
   private readonly auditLogs: AuditLog[] = [];
   private readonly inviteRewards: InviteReward[] = [];
+  private readonly supportMessages: SupportMessage[] = [];
+  private readonly supportTickets = new Map<string, string>();
   private readonly marketCache = new Map<string, MarketCacheEntry>();
   private usdJpyCache?: FxCacheEntry;
   private readonly executionProvider: ExecutionProvider = new TestExecutionProvider();
@@ -806,8 +826,14 @@ export class AppService {
   }
 
   async toggleAutoAi(customer: CustomerRecord, enabled: boolean) {
-    if (customer.kycStatus !== 'approved') {
-      throw new Error('本人確認が完了していないため、自動AI裁定を利用できません。');
+    if (enabled && customer.kycStatus !== 'approved') {
+      throw new Error('本人確認が完了していないため、自動AI裁定を開始できません。');
+    }
+    if (enabled) {
+      const jpyBalance = Number(this.balance(customer.id, 'JPY').available);
+      if (!Number.isFinite(jpyBalance) || jpyBalance < minimumAiBalanceJpy) {
+        throw new Error(`JPY利用可能残高が不足しています。自動AI裁定を開始するには最低 ${this.formatJpyText(minimumAiBalanceJpy)} が必要です。`);
+      }
     }
     customer.autoAiEnabled = enabled;
     if (enabled) {
@@ -815,8 +841,52 @@ export class AppService {
       this.ensureDailyOpportunities(customer, marketTickers);
       this.runAutoAiIfNeeded(customer, marketTickers, true);
     }
-    this.audit('simulation.auto_toggle', customer.email, 'customer', customer.id, enabled ? '开启自动 AI' : '关闭自动 AI');
+    this.audit('simulation.auto_toggle', customer.email, 'customer', customer.id, enabled ? '自動AI裁定を開始' : '自動AI裁定を停止');
     return this.dashboard(customer);
+  }
+
+  supportConversation(customer: CustomerRecord): SupportConversation {
+    const messages = this.supportMessages
+      .filter((message) => message.customerId === customer.id)
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+    const ticketNo = messages[0]?.ticketNo ?? this.supportTicketNo(customer.id);
+    const updatedAt = messages.length ? messages[messages.length - 1].createdAt : undefined;
+    return {
+      ticketNo,
+      status: messages.some((message) => message.sender === 'support') ? 'answered' : 'open',
+      messages,
+      updatedAt,
+    };
+  }
+
+  sendSupportMessage(customer: CustomerRecord, input: { category?: string; message?: string }): SupportConversation {
+    const category = input.category?.trim() || 'お問い合わせ';
+    const message = input.message?.trim() ?? '';
+    if (!message) {
+      throw new Error('お問い合わせ内容を入力してください。');
+    }
+    const ticketNo = this.supportTicketNo(customer.id);
+    const customerMessage: SupportMessage = {
+      id: this.id('supmsg'),
+      ticketNo,
+      customerId: customer.id,
+      sender: 'customer',
+      category,
+      message,
+      createdAt: this.now(),
+    };
+    const reply: SupportMessage = {
+      id: this.id('supmsg'),
+      ticketNo,
+      customerId: customer.id,
+      sender: 'support',
+      category,
+      message: this.supportReplyJa(category, message, customer),
+      createdAt: this.now(),
+    };
+    this.supportMessages.push(customerMessage, reply);
+    this.audit('support.message', customer.email, 'support', ticketNo, `${category} / ${message.slice(0, 80)}`);
+    return this.supportConversation(customer);
   }
 
   async createDeposit(customer: CustomerRecord, input: { asset: CryptoAsset; amount: string; network?: DepositOrder['network']; proofText: string; proofImageName?: string; proofImageDataUrl?: string }) {
@@ -1455,6 +1525,37 @@ export class AppService {
     const token = `${role}_${Math.random().toString(36).slice(2)}_${Date.now()}`;
     this.tokens.set(token, { actorId, role });
     return token;
+  }
+
+  private supportTicketNo(customerId: string) {
+    const existing = this.supportTickets.get(customerId);
+    if (existing) {
+      return existing;
+    }
+    const ticketNo = this.businessNo('SUP');
+    this.supportTickets.set(customerId, ticketNo);
+    return ticketNo;
+  }
+
+  private supportReplyJa(category: string, message: string, customer: CustomerRecord) {
+    const name = (customer.name || customer.email.split('@')[0]).split(/[ 　]/)[0];
+    const normalized = `${category} ${message}`.toLowerCase();
+    if (normalized.includes('入金') || normalized.includes('deposit') || normalized.includes('tx')) {
+      return `${name}様、お問い合わせありがとうございます。入金確認では、対象資産、ネットワーク、送金TxID、証明画像、申請金額を照合します。履歴詳細の業務番号を確認し、未反映の場合は同じ受付番号で追加情報を送信してください。`;
+    }
+    if (normalized.includes('出金') || normalized.includes('withdraw')) {
+      return `${name}様、お問い合わせありがとうございます。出金申請は、出金先情報、ネットワーク、残高、審査状態を確認して処理します。承認前であれば履歴詳細の内容を確認し、誤りがある場合はサポートへ連絡してください。`;
+    }
+    if (normalized.includes('裁定') || normalized.includes('ai') || normalized.includes('注文')) {
+      return `${name}様、お問い合わせありがとうございます。AI裁定は、取引所間の参考価格差、手数料、スリッページ、リスクバッファを控除したうえで結果を記録します。成功・失敗の詳細は注文履歴から確認できます。`;
+    }
+    if (normalized.includes('本人') || normalized.includes('kyc') || normalized.includes('認証')) {
+      return `${name}様、お問い合わせありがとうございます。本人確認は、登録氏名と運転免許証表面写真を照合します。追加確認が必要な場合は、審査状態と管理メモに案内が表示されます。`;
+    }
+    if (normalized.includes('交換') || normalized.includes('変換') || normalized.includes('conversion')) {
+      return `${name}様、お問い合わせありがとうございます。資産交換は、公開価格データとUSD/JPYレートを参照し、STEP 2の確認レートでJPY受取見込額を表示します。実行前に数量とレートをご確認ください。`;
+    }
+    return `${name}様、お問い合わせありがとうございます。内容を受け付けました。業務番号、対象資産、操作日時がある場合は同じ受付番号へ追記してください。サポートAPIで会話履歴を保存しています。`;
   }
 
   private emailCode() {

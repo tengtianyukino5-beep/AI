@@ -611,6 +611,7 @@ button:disabled {
 .customer-shell .support-account-box,
 .customer-shell .support-guide-list div,
 .customer-shell .about-flow-card,
+.customer-shell .support-message,
 .customer-shell .deposit-step-flow button,
 .customer-shell .customer-step-flow button,
 .customer-shell .request-address-summary {
@@ -633,6 +634,8 @@ button:disabled {
 .customer-shell .support-account-box small,
 .customer-shell .support-guide-list span,
 .customer-shell .about-flow-card span,
+.customer-shell .support-message span,
+.customer-shell .support-message small,
 .customer-shell .deposit-step-flow span,
 .customer-shell .deposit-step-flow small,
 .customer-shell .customer-step-flow span,
@@ -649,10 +652,28 @@ button:disabled {
 .customer-shell .support-account-box strong,
 .customer-shell .support-guide-list strong,
 .customer-shell .about-flow-card strong,
+.customer-shell .support-message strong,
 .customer-shell .deposit-step-flow strong,
 .customer-shell .customer-step-flow strong,
 .customer-shell .request-address-summary strong {
   color: #f4f9ff;
+}
+
+.customer-shell .support-message p {
+  color: rgba(226, 238, 248, 0.86);
+}
+
+.customer-shell .support-message.support {
+  background:
+    linear-gradient(180deg, rgba(13, 46, 58, 0.96), rgba(8, 22, 37, 0.94)),
+    rgba(8, 22, 37, 0.96);
+}
+
+.customer-shell .support-message.customer {
+  border-color: rgba(43, 140, 255, 0.32);
+  background:
+    linear-gradient(180deg, rgba(17, 50, 82, 0.96), rgba(8, 22, 37, 0.94)),
+    rgba(8, 22, 37, 0.96);
 }
 
 .customer-shell .deposit-step-flow button.active,
@@ -860,13 +881,40 @@ button.kyc-proof-thumb {
 .empty-state {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
+  min-width: 0;
   gap: 8px;
   border-radius: 8px;
   background: #e7f4ef;
   color: #103f45;
   padding: 10px 12px;
   font-weight: 800;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.empty-state svg,
+.runtime-banner svg {
+  flex: 0 0 auto;
+}
+
+.empty-state span,
+.runtime-banner span,
+.ai-start-row span,
+.ai-start-row strong,
+.opportunity-card,
+.opportunity-card p,
+.opportunity-card strong,
+.opportunity-card small,
+.scanner-grid div,
+.scanner-grid span,
+.scanner-grid strong,
+.record-code,
+.mobile-record-main,
+.mobile-record-main strong,
+.mobile-record-main span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .headline-side {
@@ -1967,6 +2015,7 @@ select:focus {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
+  min-width: 0;
 }
 
 .customer-step-flow.steps-3 {
@@ -1989,6 +2038,7 @@ select:focus {
 .customer-step-flow button {
   display: grid;
   gap: 4px;
+  min-width: 0;
   min-height: 88px;
   border: 1px solid rgba(16, 63, 69, 0.12);
   border-radius: 8px;
@@ -2026,15 +2076,21 @@ select:focus {
 .customer-step-flow span,
 .customer-step-flow small,
 .request-address-summary span {
+  min-width: 0;
   color: #60736a;
   font-size: 12px;
   font-weight: 850;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .deposit-step-flow strong,
 .customer-step-flow strong,
 .request-address-summary strong {
+  min-width: 0;
   color: #142b2b;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .deposit-step-actions {
@@ -2202,6 +2258,68 @@ select:focus {
 
 .about-flow-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.about-detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.support-chat-panel {
+  min-height: 100%;
+}
+
+.support-chat-list {
+  display: grid;
+  max-height: 520px;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.support-message {
+  display: grid;
+  max-width: 92%;
+  min-width: 0;
+  gap: 6px;
+  border: 1px solid rgba(16, 63, 69, 0.12);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 11px;
+  overflow-wrap: anywhere;
+}
+
+.support-message.support {
+  justify-self: start;
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.support-message.customer {
+  justify-self: end;
+  background: rgba(22, 104, 255, 0.1);
+}
+
+.support-message div {
+  display: flex;
+  min-width: 0;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.support-message strong {
+  color: #142b2b;
+}
+
+.support-message span,
+.support-message small {
+  color: #60736a;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.support-message p {
+  margin: 0;
+  color: #24322d;
+  line-height: 1.55;
 }
 
 .support-ticket {
@@ -3603,7 +3721,8 @@ tr:last-child td {
   .customer-step-flow button {
     min-height: 76px;
     border-radius: 12px;
-    padding: 9px 7px;
+    padding: 8px 6px;
+    overflow: hidden;
   }
 
   .customer-step-flow span,
@@ -3613,8 +3732,23 @@ tr:last-child td {
   }
 
   .customer-step-flow strong {
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.25;
+  }
+
+  .empty-state,
+  .runtime-banner,
+  .ai-start-row {
+    align-items: flex-start;
+    white-space: normal;
+  }
+
+  .support-chat-list {
+    max-height: 420px;
+  }
+
+  .support-message {
+    max-width: 100%;
   }
 
   input,
