@@ -8,6 +8,8 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       /^https:\/\/.*\.app\.github\.dev$/,
+      'http://127.0.0.1:8080',
+      'http://localhost:8080',
       'http://127.0.0.1:3000',
       'http://localhost:3000',
       'http://127.0.0.1:5173',
@@ -49,7 +51,7 @@ async function bootstrap() {
 
 function getListenPorts() {
   const primaryPort = toPort(process.env.API_PORT ?? process.env.PORT, 8080) ?? 8080;
-  const compatibilityPorts = (process.env.COMPATIBILITY_PORTS ?? '3000,3001,5173')
+  const compatibilityPorts = (process.env.COMPATIBILITY_PORTS ?? '')
     .split(',')
     .map((value) => toPort(value.trim()))
     .filter((port): port is number => typeof port === 'number');

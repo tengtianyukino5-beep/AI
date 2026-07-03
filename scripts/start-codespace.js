@@ -5,7 +5,7 @@ const isWindows = process.platform === 'win32';
 const pnpm = process.env.npm_execpath || (isWindows ? 'pnpm.cmd' : 'pnpm');
 const configuredPort = Number(process.env.API_PORT || 8080);
 const port = Number.isFinite(configuredPort) && configuredPort > 0 ? configuredPort : 8080;
-const compatibilityPorts = (process.env.COMPATIBILITY_PORTS || '3000,3001,5173')
+const compatibilityPorts = (process.env.COMPATIBILITY_PORTS ?? '')
   .split(',')
   .map((value) => Number(value.trim()))
   .filter((value) => Number.isInteger(value) && value > 0 && value < 65536);
@@ -132,10 +132,6 @@ function startApp(name, args, env = {}) {
         const recommended = externalUrls.find((item) => item.port === port) ?? externalUrls[0];
         console.log(`Open customer frontend: ${recommended.url}/`);
         console.log(`Open admin backend:    ${recommended.url}/admin`);
-        console.log('Alternative Codespaces URLs:');
-        for (const item of externalUrls) {
-          console.log(`- ${item.port}: ${item.url}/`);
-        }
       }
     }
     if (failed.length) {
