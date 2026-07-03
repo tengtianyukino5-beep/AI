@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Res } from '@nestjs/common';
+import { Controller, Get, Param, Req, Res } from '@nestjs/common';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, relative, resolve } from 'node:path';
 
@@ -35,6 +35,14 @@ export class WebController {
   @Get('assets/:file')
   asset(@Param('file') file: string, @Res() response: WebResponse) {
     return this.sendStatic(response, `assets/${file}`);
+  }
+
+  @Get('*')
+  frontendFallback(@Req() request: WebRequest, @Res() response: WebResponse) {
+    if (request.path.startsWith('/api') || request.path.startsWith('/api-docs')) {
+      return response.status(404).type('text/plain; charset=utf-8').send('Not Found');
+    }
+    return this.sendIndex(response);
   }
 
   private sendIndex(response: WebResponse) {
@@ -85,4 +93,8 @@ type WebResponse = {
   status: (code: number) => WebResponse;
   type: (value: string) => WebResponse;
   send: (body: Buffer | string) => void;
+};
+
+type WebRequest = {
+  path: string;
 };

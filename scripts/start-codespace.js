@@ -3,9 +3,9 @@ const http = require('node:http');
 
 const isWindows = process.platform === 'win32';
 const pnpm = process.env.npm_execpath || (isWindows ? 'pnpm.cmd' : 'pnpm');
-const configuredPort = Number(process.env.API_PORT || process.env.PORT || 3000);
-const port = Number.isFinite(configuredPort) && configuredPort > 0 ? configuredPort : 3000;
-const compatibilityPorts = (process.env.COMPATIBILITY_PORTS || '8080,3000,3001,5173')
+const configuredPort = Number(process.env.API_PORT || 8080);
+const port = Number.isFinite(configuredPort) && configuredPort > 0 ? configuredPort : 8080;
+const compatibilityPorts = (process.env.COMPATIBILITY_PORTS || '3000,3001,5173')
   .split(',')
   .map((value) => Number(value.trim()))
   .filter((value) => Number.isInteger(value) && value > 0 && value < 65536);
