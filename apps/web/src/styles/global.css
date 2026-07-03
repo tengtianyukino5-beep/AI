@@ -604,6 +604,7 @@ button:disabled {
 }
 
 .customer-shell .funds-balance-grid div,
+.customer-shell .funds-guide-list button,
 .customer-shell .mobile-action,
 .customer-shell .my-menu-button,
 .customer-shell .account-log-list div,
@@ -624,6 +625,7 @@ button:disabled {
 }
 
 .customer-shell .funds-balance-grid span,
+.customer-shell .funds-guide-list span,
 .customer-shell .mobile-action span,
 .customer-shell .my-menu-button small,
 .customer-shell .account-log-list span,
@@ -645,6 +647,7 @@ button:disabled {
 }
 
 .customer-shell .funds-balance-grid strong,
+.customer-shell .funds-guide-list strong,
 .customer-shell .mobile-action strong,
 .customer-shell .my-menu-button strong,
 .customer-shell .account-log-list strong,
@@ -1928,6 +1931,7 @@ select:focus {
 
 .address-copy-card,
 .address-mini-card,
+.funds-guide-list button,
 .funds-recent-list button,
 .deposit-address-hero,
 .ledger-vip-grid div,
@@ -1942,11 +1946,28 @@ select:focus {
 
 .address-copy-card,
 .address-mini-card,
+.funds-guide-list button,
 .funds-recent-list button,
 .deposit-address-hero {
   display: grid;
   gap: 8px;
   text-align: left;
+}
+
+.funds-guide-list {
+  display: grid;
+  gap: 10px;
+}
+
+.funds-guide-list button {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  cursor: pointer;
+}
+
+.funds-guide-list svg {
+  margin-top: 2px;
+  color: #0f766e;
 }
 
 .address-copy-card code,
@@ -1965,6 +1986,7 @@ select:focus {
 .address-copy-card small,
 .address-mini-card span,
 .address-mini-card small,
+.funds-guide-list span,
 .funds-recent-list span,
 .funds-recent-list small,
 .deposit-address-hero span,
@@ -1978,6 +2000,7 @@ select:focus {
 
 .address-copy-card strong,
 .address-mini-card strong,
+.funds-guide-list strong,
 .funds-recent-list strong,
 .deposit-address-hero strong,
 .ledger-vip-grid strong {

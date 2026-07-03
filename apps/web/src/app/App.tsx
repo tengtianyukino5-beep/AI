@@ -1116,7 +1116,7 @@ function DepositPage(props: {
           ) : (
             <div>
               <Upload size={26} />
-              <strong>転送明細、ウォレット送金画面、または取引完了画面をアップロード</strong>
+              <strong>送金明細、ウォレット送金画面、または取引完了画面をアップロード</strong>
               <span>金額、資産、日時、送金先が確認できる画像を選択してください。</span>
             </div>
           )}
@@ -1655,7 +1655,6 @@ function FundsPage(props: {
   const latestDeposit = props.dashboard.deposits[0];
   const latestWithdrawal = props.dashboard.withdrawals[0];
   const latestOrder = props.dashboard.orders[0];
-  const enabledAddresses = props.dashboard.depositAddresses.filter((address) => address.enabled);
 
   return (
     <section className="funds-workspace">
@@ -1663,7 +1662,7 @@ function FundsPage(props: {
         <div>
           <p className="eyebrow">Assets</p>
           <h2>入出金・交換</h2>
-          <p>資産の入金先確認、入金申請、出金申請、JPY交換を必要な画面だけ開いて操作できます。</p>
+          <p>入金、出金、JPY交換を目的別の画面で確認しながら操作できます。入金アドレスは入金画面のSTEP 1で表示されます。</p>
         </div>
         <div className="funds-balance-grid">
           <div>
@@ -1688,7 +1687,7 @@ function FundsPage(props: {
       <div className="funds-action-grid">
         {[
           { key: 'deposit', label: '入金', icon: Wallet, note: latestDeposit ? depositStatusJa(latestDeposit.status) : 'アドレス確認・申請' },
-          { key: 'withdraw', label: '出金', icon: Banknote, note: latestWithdrawal ? withdrawalStatusJa(latestWithdrawal.status) : '申請作成' },
+          { key: 'withdraw', label: '出金', icon: Banknote, note: latestWithdrawal ? withdrawalStatusJa(latestWithdrawal.status) : '申請を作成' },
           { key: 'convert', label: '資産交換', icon: ArrowRightLeft, note: '暗号資産をJPYへ' },
         ].map((item) => {
           const Icon = item.icon;
@@ -1708,31 +1707,36 @@ function FundsPage(props: {
       </div>
 
       <div className="funds-dashboard-grid">
-        <section className="panel funds-address-panel">
+        <section className="panel funds-guide-panel">
           <div className="panel-head">
             <div>
-              <p className="eyebrow">Deposit Address</p>
-              <h2>入金アドレス</h2>
+              <p className="eyebrow">Operation Guide</p>
+              <h2>操作ガイド</h2>
             </div>
-            <button className="ghost-button" type="button" onClick={() => props.navigate('deposit')}>
-              詳細
-            </button>
+            <Info size={22} />
           </div>
-          <div className="address-card-grid">
-            {enabledAddresses.length === 0 ? <EmptyState text="入金アドレスは管理側の設定待ちです。" /> : null}
-            {enabledAddresses.slice(0, 4).map((address) => (
-              <article className="address-copy-card" key={address.id}>
-                <div>
-                  <span>{address.labelJa}</span>
-                  <strong>{address.asset} / {address.network}</strong>
-                </div>
-                <code>{address.address}</code>
-                <button className="secondary-button" type="button" onClick={() => void copyToClipboard(address.address)}>
-                  <Copy size={16} />
-                  コピー
-                </button>
-              </article>
-            ))}
+          <div className="funds-guide-list">
+            <button type="button" onClick={() => props.navigate('deposit')}>
+              <Wallet size={18} />
+              <div>
+                <strong>入金</strong>
+                <span>資産とネットワークを選択し、入金アドレスをコピーしてから送金証明を提出します。</span>
+              </div>
+            </button>
+            <button type="button" onClick={() => props.navigate('withdraw')}>
+              <Banknote size={18} />
+              <div>
+                <strong>出金</strong>
+                <span>出金先、ネットワーク、数量を確認し、審査申請を送信します。</span>
+              </div>
+            </button>
+            <button type="button" onClick={() => props.navigate('convert')}>
+              <ArrowRightLeft size={18} />
+              <div>
+                <strong>資産交換</strong>
+                <span>保有暗号資産の数量を入力し、確認レートを取得してJPYへ反映します。</span>
+              </div>
+            </button>
           </div>
         </section>
 
@@ -2636,7 +2640,7 @@ function PlatformAboutPage() {
     },
     {
       title: 'VIPと利用回数',
-      text: 'VIPランクにより東京自然日の利用可能回数が決まります。管理画面で回数、成功率、AI算力、アップグレード条件を設定し、前台表示へ反映します。',
+      text: 'VIPランクにより東京自然日の利用可能回数が決まります。管理画面で回数、成功率、AI算力、アップグレード条件を設定し、お客様画面へ反映します。',
     },
     {
       title: '審査とリスク管理',
@@ -4363,11 +4367,11 @@ function OrderDetailPanel({ order, onClose }: { order: SimulationOrder; onClose:
           { label: '控除合計', value: formatJpy(order.totalCostJpy ?? '0') },
           { label: '純利益', value: formatJpy(order.profitJpy) },
           { label: 'VIP', value: order.vipLevel },
-          { label: '残高Version', value: `${order.balanceVersionBefore} -> ${order.balanceVersionAfter}` },
+          { label: '残高バージョン', value: `${order.balanceVersionBefore} -> ${order.balanceVersionAfter}` },
           { label: '買付注文ID', value: order.buyOrderId ?? '-', wide: true },
           { label: '売却注文ID', value: order.sellOrderId ?? '-', wide: true },
           { label: '管理メモ', value: order.adminNoteJa ?? (order.status === 'settled' ? '残高反映済みです。' : '利益反映なしとして記録されています。'), wide: true },
-          { label: 'AI分析摘要', value: order.aiSummaryJa, wide: true },
+          { label: 'AI分析要約', value: order.aiSummaryJa, wide: true },
         ]}
       />
     </CustomerDetailPanel>
