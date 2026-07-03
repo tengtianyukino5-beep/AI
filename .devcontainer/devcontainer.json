@@ -2,10 +2,10 @@
   "name": "AI Arbitrage Web",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
   "workspaceFolder": "/workspaces/AI",
-  "forwardPorts": [3001],
+  "forwardPorts": [8080],
   "portsAttributes": {
-    "3001": {
-      "label": "App",
+    "8080": {
+      "label": "AI Arbitrage Web",
       "onAutoForward": "openBrowser",
       "visibility": "public"
     }
