@@ -875,7 +875,6 @@ function DepositPage(props: {
   const [selectedDeposit, setSelectedDeposit] = useState<DepositOrder | null>(null);
   const selectedNetwork = networkForAsset(asset, network);
   const depositAddress = depositAddressFor(props.dashboard.depositAddresses, asset, selectedNetwork);
-  const enabledAddresses = props.dashboard.depositAddresses.filter((address) => address.enabled);
   const depositTotalJpy = sumValuationJpy(props.dashboard.deposits);
   const latestDepositAt = latestRecordTime(props.dashboard.deposits);
   const depositRecords = props.dashboard.deposits;
@@ -946,8 +945,8 @@ function DepositPage(props: {
         </button>
         <button className={depositStep === 'request' ? 'active' : ''} type="button" onClick={() => setDepositStep('request')}>
           <span>STEP 2</span>
-          <strong>入金申請</strong>
-          <small>数量と証明を提出</small>
+          <strong>送金証明</strong>
+          <small>数量・TxID・写真</small>
         </button>
       </div>
 
@@ -1009,26 +1008,9 @@ function DepositPage(props: {
               アドレスをコピー
             </button>
             <button className="primary-button" type="button" onClick={() => setDepositStep('request')}>
-              入金申請へ進む
+              STEP 2へ進む
             </button>
           </div>
-        </div>
-        <div className="address-card-grid compact">
-          {enabledAddresses.map((address) => (
-            <button
-              className={address.asset === asset && address.network === selectedNetwork ? 'address-mini-card active' : 'address-mini-card'}
-              key={address.id}
-              type="button"
-              onClick={() => {
-                setAsset(address.asset);
-                setNetwork(address.network);
-              }}
-            >
-              <span>{address.asset}</span>
-              <strong>{address.network}</strong>
-              <small>{address.labelJa}</small>
-            </button>
-          ))}
         </div>
       </section>
       ) : null}
@@ -1038,8 +1020,8 @@ function DepositPage(props: {
       <form className="panel deposit-panel" onSubmit={submit}>
         <div className="panel-head">
           <div>
-            <p className="eyebrow">入金</p>
-            <h2>入金申請</h2>
+            <p className="eyebrow">STEP 2</p>
+            <h2>申請内容</h2>
           </div>
           <Wallet size={22} />
         </div>
@@ -1109,7 +1091,7 @@ function DepositPage(props: {
         </div>
         {proofFileName ? <p className="upload-note">選択済み：{proofFileName}</p> : null}
         <button className="primary-button" disabled={submitting} type="submit">
-          {submitting ? '送信中...' : '入金申請'}
+          {submitting ? '送信中...' : '申請を送信'}
         </button>
       </form>
       <aside className="panel deposit-guide">
@@ -1471,7 +1453,8 @@ function ConversionPage(props: {
         setConversionStep(value);
       }}
     />
-    <section className="two-column conversion-workspace">
+    <section className="conversion-workspace conversion-step-stage">
+      {conversionStep === 'asset' ? (
       <form className="panel conversion-panel" onSubmit={createQuote}>
         <div className="panel-head">
           <div>
@@ -1524,7 +1507,7 @@ function ConversionPage(props: {
         <div className="balance-hint">
           <span>利用可能</span>
           <strong>{selectedBalance.available} {fromAsset}</strong>
-          <small>概算 {formatJpy(estimatedAssetJpy(fromAsset, selectedBalance.available, props.dashboard.marketTickers))}</small>
+          <small>入力数量の概算 {formatJpy(quoteEstimatedJpy)}</small>
         </div>
         <button className="primary-button" type="submit">
           レートを確認
@@ -1538,9 +1521,11 @@ function ConversionPage(props: {
           保有している暗号資産を選択し、数量を入力してJPY受取額を確認してください。確定すると選択資産が減少し、JPY残高へ反映されます。
         </p>
       </form>
+      ) : null}
+      {conversionStep !== 'asset' ? (
       <div className="panel rate-panel">
         <div className="panel-head">
-          <h2>JPY受取見積</h2>
+          <h2>{conversionStep === 'execute' ? '交換内容の最終確認' : 'JPY受取見積'}</h2>
           <Clock3 size={22} />
         </div>
         {quote ? (
@@ -1617,6 +1602,7 @@ function ConversionPage(props: {
           </div>
         )}
       </div>
+      ) : null}
     </section>
     </section>
   );

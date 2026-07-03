@@ -1731,6 +1731,16 @@ select:focus {
   align-items: start;
 }
 
+.conversion-step-stage {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.conversion-step-stage .conversion-panel,
+.conversion-step-stage .rate-panel {
+  width: min(760px, 100%);
+  justify-self: center;
+}
+
 .ai-workspace {
   display: grid;
   gap: 16px;
