@@ -136,7 +136,12 @@ export function App() {
 
   useEffect(() => {
     if (customerToken) {
-      void loadDashboard(customerToken);
+      void loadDashboard(customerToken).catch(() => {
+        localStorage.removeItem('customerToken');
+        setCustomerToken('');
+        setDashboard(null);
+        setToast('セッションの有効期限が切れました。もう一度ログインしてください。');
+      });
     }
   }, [customerToken]);
 
@@ -145,14 +150,24 @@ export function App() {
       return undefined;
     }
     const timer = window.setInterval(() => {
-      void loadDashboard(customerToken);
+      void loadDashboard(customerToken).catch(() => {
+        localStorage.removeItem('customerToken');
+        setCustomerToken('');
+        setDashboard(null);
+        setToast('セッションの有効期限が切れました。もう一度ログインしてください。');
+      });
     }, 3500);
     return () => window.clearInterval(timer);
   }, [customerToken]);
 
   useEffect(() => {
     if (adminToken) {
-      void loadAdmin(adminToken);
+      void loadAdmin(adminToken).catch(() => {
+        localStorage.removeItem('adminToken');
+        setAdminToken('');
+        setAdminState(null);
+        setToast('管理セッションの有効期限が切れました。もう一度ログインしてください。');
+      });
     }
   }, [adminToken]);
 
