@@ -443,7 +443,7 @@ class TestExecutionProvider implements ExecutionProvider {
         netProfitJpy: '0',
         disclosureJa: '価格差、手数料、スリッページ、リスクバッファを再照合し、利益反映なしとして記録しました。',
         failureReasonJa: '価格差が手数料・スリッページ・リスクバッファを下回りました。',
-        failureDetailJa: `${sourceLabel}の板情報を照合しましたが、控除後の純利益が0円以下となったため、失敗として記録されました。`,
+        failureDetailJa: `${sourceLabel}の価格情報を照合しましたが、控除後の純利益が0円以下となったため、失敗として記録されました。`,
       };
     }
 
@@ -480,7 +480,7 @@ class LiveExchangeExecutionProvider implements ExecutionProvider {
 }
 
 const disclosureJa =
-  '相場データは公開取引所APIを優先して取得し、AI注文処理、資金反映、履歴記録を東京時間に基づいて管理します。';
+  '相場データは公開取引所APIを優先して取得し、AI実行処理、資金反映、履歴記録を東京時間に基づいて管理します。';
 const balanceAssets: Asset[] = ['JPY', 'USDT', 'BTC', 'ETH'];
 const cryptoAssets: CryptoAsset[] = ['USDT', 'BTC', 'ETH'];
 const marketAssets: MarketAsset[] = ['BTC', 'ETH', 'XRP', 'SOL', 'DOT', 'DOGE', 'LTC', 'MONA', 'BCC', 'XLM'];
@@ -688,7 +688,7 @@ export class AppService {
       email: normalizedEmail,
       deliveryMode: realEmailEnabled ? 'email_api' : 'development',
       developmentCode: realEmailEnabled ? undefined : '888888',
-      messageJa: realEmailEnabled ? '認証コードをメールで送信しました。' : '開発環境の認証コードは 888888 です。',
+      messageJa: realEmailEnabled ? '認証コードをメールで送信しました。' : '認証コードを発行しました。',
     };
   }
 
@@ -740,7 +740,7 @@ export class AppService {
   adminLogin(username: string, password: string) {
     if (username !== 'yuki888' || password !== '123456') {
       this.audit('admin.login.failed', username, 'admin', username, '后台登录失败');
-      throw new Error('账号或密码错误');
+      throw new Error('アカウントまたはパスワードが正しくありません。');
     }
     const token = this.token('admin_seed', 'admin');
     this.audit('admin.login.success', username, 'admin', username, '后台登录成功');
@@ -763,7 +763,7 @@ export class AppService {
     }
     const customer = this.customers.get(record.actorId);
     if (!customer) {
-      throw new Error('Customer not found');
+      throw new Error('お客様情報が見つかりません。再度ログインしてください。');
     }
     return customer;
   }
@@ -771,7 +771,7 @@ export class AppService {
   adminByToken(token: string) {
     const record = this.tokens.get(token);
     if (!record || record.role !== 'admin') {
-      throw new Error('后台登录已失效');
+      throw new Error('管理セッションの有効期限が切れました。再度ログインしてください。');
     }
     return record.actorId;
   }
@@ -891,20 +891,20 @@ export class AppService {
 
   async createDeposit(customer: CustomerRecord, input: { asset: CryptoAsset; amount: string; network?: DepositOrder['network']; proofText: string; proofImageName?: string; proofImageDataUrl?: string }) {
     if (customer.kycStatus !== 'approved') {
-      throw new Error('入金申请前需要先完成 KYC。');
+      throw new Error('入金申請前に本人確認を完了してください。');
     }
     if (!input.proofText?.trim()) {
-      throw new Error('请填写转账 TxID 或受理备注。');
+      throw new Error('送金TxIDまたは受付メモを入力してください。');
     }
     if (!input.proofImageName?.trim()) {
-      throw new Error('入金凭证图片不能为空。');
+      throw new Error('入金証明写真をアップロードしてください。');
     }
     if (input.asset === 'USDT' && !['TRC-20', 'ERC-20'].includes(input.network ?? '')) {
       throw new Error('USDT入金はTRC-20またはERC-20ネットワークを選択してください。');
     }
     const amount = Number(input.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error('请输入有效的入金数量。');
+      throw new Error('有効な入金数量を入力してください。');
     }
     const pricing = await this.assetPricingSnapshot(input.asset, amount, true);
     const depositNetwork = input.asset === 'USDT' ? input.network : input.asset === 'BTC' ? 'Bitcoin' : 'Ethereum';
@@ -1012,7 +1012,7 @@ export class AppService {
   async quoteConversion(customer: CustomerRecord, input: { fromAsset: CryptoAsset; amount: string }) {
     const amount = Number(input.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error('変換数量を入力してください。');
+      throw new Error('交換数量を入力してください。');
     }
     const balance = this.balance(customer.id, input.fromAsset);
     if (Number(balance.available) < amount) {
@@ -1063,8 +1063,8 @@ export class AppService {
     if (new Date(quote.expiresAt).getTime() < Date.now()) {
       throw new Error('レートの有効期限が切れました。');
     }
-    this.adjustBalance(customer.id, quote.fromAsset, -Number(quote.fromAmount), 'conversion_out', '変換', '转换扣减');
-    this.adjustBalance(customer.id, 'JPY', Number(quote.receivedJpy), 'conversion_in', '変換', '转换入账');
+    this.adjustBalance(customer.id, quote.fromAsset, -Number(quote.fromAmount), 'conversion_out', '資産交換', '交換元資産の控除');
+    this.adjustBalance(customer.id, 'JPY', Number(quote.receivedJpy), 'conversion_in', '資産交換', 'JPY受取額の反映');
     this.audit(
       'conversion.execute',
       customer.email,
@@ -1091,10 +1091,10 @@ export class AppService {
       throw new Error(`VIPアップグレードには ${this.formatJpyText(costJpy)} のJPY残高が必要です。`);
     }
     if (costJpy > 0) {
-      this.adjustBalance(customer.id, 'JPY', -costJpy, 'manual_debit', 'VIPアップグレード', `${nextLevel} 升级费用扣除`);
+      this.adjustBalance(customer.id, 'JPY', -costJpy, 'manual_debit', 'VIPアップグレード', `${nextLevel} アップグレード費用の控除`);
     }
     customer.vipLevel = nextLevel;
-    this.audit('vip.upgrade', customer.email, 'customer', customer.id, `${nextLevel} 自助升级，扣除 ¥${costJpy}`);
+    this.audit('vip.upgrade', customer.email, 'customer', customer.id, `${nextLevel} セルフアップグレード、手数料 ¥${costJpy} を控除`);
     return this.dashboard(customer);
   }
 
@@ -1214,7 +1214,7 @@ export class AppService {
   approveDeposit(depositId: string, operator: string) {
     const deposit = this.deposits.find((item) => item.id === depositId);
     if (!deposit) {
-      throw new Error('入金记录不存在');
+      throw new Error('入金記録が見つかりません。');
     }
     if (deposit.status === 'approved') {
       return this.adminState();
@@ -1222,7 +1222,7 @@ export class AppService {
     deposit.status = 'approved';
     deposit.reviewedAt = this.now();
     deposit.adminNote = '入金確認が完了し、対象資産の残高へ反映しました。';
-    this.adjustBalance(deposit.customerId, deposit.asset, Number(deposit.amount), 'deposit', '入金', '入金确认');
+    this.adjustBalance(deposit.customerId, deposit.asset, Number(deposit.amount), 'deposit', '入金', '入金確認済み');
     this.audit('deposit.approve', operator, 'deposit', deposit.id, `${deposit.asset} ${deposit.amount}`);
     return this.adminState();
   }
@@ -1230,7 +1230,7 @@ export class AppService {
   rejectDeposit(depositId: string, operator: string) {
     const deposit = this.deposits.find((item) => item.id === depositId);
     if (!deposit) {
-      throw new Error('入金记录不存在');
+      throw new Error('入金記録が見つかりません。');
     }
     deposit.status = 'rejected';
     deposit.reviewedAt = this.now();
@@ -1242,7 +1242,7 @@ export class AppService {
   approveWithdrawal(withdrawalId: string, operator: string) {
     const withdrawal = this.withdrawals.find((item) => item.id === withdrawalId);
     if (!withdrawal) {
-      throw new Error('出金记录不存在');
+      throw new Error('出金記録が見つかりません。');
     }
     if (withdrawal.status === 'approved') {
       return this.adminState();
@@ -1250,7 +1250,7 @@ export class AppService {
     const balance = this.balance(withdrawal.customerId, withdrawal.asset);
     const amount = Number(withdrawal.amount);
     if (Number(balance.available) < amount) {
-      throw new Error('客户可用余额不足，无法完成出金');
+      throw new Error('お客様の利用可能残高が不足しているため、出金を完了できません。');
     }
     balance.available =
       withdrawal.asset === 'JPY'
@@ -1282,7 +1282,7 @@ export class AppService {
   rejectWithdrawal(withdrawalId: string, operator: string) {
     const withdrawal = this.withdrawals.find((item) => item.id === withdrawalId);
     if (!withdrawal) {
-      throw new Error('出金记录不存在');
+      throw new Error('出金記録が見つかりません。');
     }
     if (withdrawal.status !== 'pending') {
       return this.adminState();
@@ -1316,7 +1316,7 @@ export class AppService {
   ) {
     const amount = Number(input.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error('请输入有效金额');
+      throw new Error('有効な金額を入力してください。');
     }
     const signedAmount = input.direction === 'credit' ? amount : -amount;
     this.adjustBalance(
@@ -1325,7 +1325,7 @@ export class AppService {
       signedAmount,
       input.direction === 'credit' ? 'manual_credit' : 'manual_debit',
       '残高調整',
-      input.reason || '后台人工余额调整',
+      input.reason || '管理部門による残高調整',
     );
     this.audit('balance.adjust', operator, 'customer', input.customerId, `${input.asset} ${signedAmount}`);
     return this.adminState();
@@ -1387,7 +1387,7 @@ export class AppService {
   updateExchange(exchangeId: string, input: { intervalSeconds: number; enabled: boolean }, operator: string) {
     const exchange = this.exchanges.find((item) => item.id === exchangeId);
     if (!exchange) {
-      throw new Error('交易所不存在');
+      throw new Error('取引所設定が見つかりません。');
     }
     const intervalSeconds = Number(input.intervalSeconds);
     exchange.intervalSeconds = Math.min(
@@ -1409,7 +1409,7 @@ export class AppService {
   updateVip(level: VipLevel, input: Partial<VipRule>, operator: string) {
     const rule = this.vipRules.find((item) => item.level === level);
     if (!rule) {
-      throw new Error('VIP 规则不存在');
+      throw new Error('VIPルールが見つかりません。');
     }
     Object.assign(rule, {
       dailyLimit: Number(input.dailyLimit ?? rule.dailyLimit),
@@ -1433,12 +1433,12 @@ export class AppService {
   ) {
     const address = this.depositAddresses.find((item) => item.id === addressId);
     if (!address) {
-      throw new Error('入金地址配置不存在');
+      throw new Error('入金アドレス設定が見つかりません。');
     }
     if (typeof input.address === 'string') {
       const nextAddress = input.address.trim();
       if (!nextAddress) {
-        throw new Error('入金地址不能为空');
+        throw new Error('入金アドレスを入力してください。');
       }
       address.address = nextAddress;
     }
@@ -1466,10 +1466,10 @@ export class AppService {
     const customer = this.createCustomer('demo@example.jp', '123456', 'approved', 'VIP0', 38000, {
       campaignRewardPosted: true,
     });
-    this.adjustBalance(customer.id, 'JPY', 10000, 'operation_reward', 'キャンペーン報酬', '注册体验金额');
-    this.adjustBalance(customer.id, 'ETH', 1.25, 'deposit', '入金', '种子 ETH 入金');
-    this.adjustBalance(customer.id, 'USDT', 500, 'deposit', '入金', '种子 USDT 入金');
-    this.adjustBalance(customer.id, 'BTC', 0.0125, 'deposit', '入金', '种子 BTC 入金');
+    this.adjustBalance(customer.id, 'JPY', 10000, 'operation_reward', 'キャンペーン報酬', '登録キャンペーン報酬');
+    this.adjustBalance(customer.id, 'ETH', 1.25, 'deposit', '入金', '初期ETH入金');
+    this.adjustBalance(customer.id, 'USDT', 500, 'deposit', '入金', '初期USDT入金');
+    this.adjustBalance(customer.id, 'BTC', 0.0125, 'deposit', '入金', '初期BTC入金');
     this.ensureDailyOpportunities(customer, this.marketTickers());
     this.audit('system.seed', 'system', 'system', 'seed', '初始化本地演示数据');
   }
@@ -1617,7 +1617,7 @@ export class AppService {
   private mustCustomer(customerId: string) {
     const customer = this.customers.get(customerId);
     if (!customer) {
-      throw new Error('客户不存在');
+      throw new Error('お客様情報が見つかりません。');
     }
     return customer;
   }
@@ -1675,7 +1675,7 @@ export class AppService {
   private balance(customerId: string, asset: Asset) {
     const balance = this.balances.get(customerId)?.get(asset);
     if (!balance) {
-      throw new Error(`Balance missing: ${customerId} ${asset}`);
+      throw new Error(`残高情報が見つかりません。customer=${customerId} asset=${asset}`);
     }
     return balance;
   }
@@ -1692,7 +1692,7 @@ export class AppService {
     const current = Number(balance.available);
     const next = current + signedAmount;
     if (next < -0.00000001) {
-      throw new Error(asset === 'JPY' ? 'JPY 可用余额不足' : `${asset} 残高が不足しています。`);
+      throw new Error(asset === 'JPY' ? 'JPY利用可能残高が不足しています。' : `${asset} 残高が不足しています。`);
     }
     balance.available = asset === 'JPY' ? String(Math.round(next)) : this.formatDecimal(next);
     balance.balanceVersion += 1;
@@ -1858,7 +1858,7 @@ export class AppService {
       return {
         enabled: false,
         stage: 'idle',
-        nextRunHintJa: '自動AI裁定をONにすると、検出された機会を平台内で自動処理します。',
+        nextRunHintJa: '自動AI裁定をONにすると、検出された機会をプラットフォーム内で自動処理します。',
       };
     }
     if (customer.aiRunning) {
@@ -1912,7 +1912,7 @@ export class AppService {
       return {
         enabled: true,
         stage: 'scanning',
-        nextRunHintJa: '市場シグナルを監視しています。条件が成立すると平台内で自動処理します。',
+        nextRunHintJa: '市場シグナルを監視しています。条件が成立するとプラットフォーム内で自動処理します。',
       };
     }
 
@@ -2026,7 +2026,7 @@ export class AppService {
           Number(execution.netProfitJpy),
           'simulation_profit',
           'AI裁定利益',
-          mode === 'auto' ? '自動AI裁定テスト利益' : '手動AI裁定テスト利益',
+          mode === 'auto' ? '自動AI裁定利益' : '手動AI裁定利益',
         );
       }
       this.audit(
@@ -2320,7 +2320,7 @@ export class AppService {
       messageJa:
         this.executionProvider.venue === 'live_exchange'
           ? '相場APIとライブ発注レイヤーが有効です。'
-          : '相場データは公開取引所APIを優先して取得し、AI注文処理と残高反映を運用設定に基づいて管理しています。',
+          : '相場データは公開取引所APIを優先して取得し、AI実行処理と残高反映を運用設定に基づいて管理しています。',
       messageZh:
         this.executionProvider.venue === 'live_exchange'
           ? '真实行情与真实下单层已启用。'
@@ -2535,7 +2535,7 @@ export class AppService {
           exchange.unsupportedPairCount = pairs.length - supportedPairs.length;
           if (supportedPairs.length === 0) {
             exchange.lastStatus = 'fallback';
-            exchange.lastError = '该交易所当前没有可用的公开行情交易对，已使用备用行情源。';
+            exchange.lastError = 'この取引所では現在利用可能な公開価格ペアがないため、バックアップ価格を使用しています。';
             return;
           }
 
@@ -2560,11 +2560,11 @@ export class AppService {
             const unsupported = exchange.unsupportedPairCount ?? 0;
             exchange.lastError =
               failed > 0 || unsupported > 0
-                ? `真实API成功 ${exchange.realApiPairCount}/${supportedPairs.length} 个交易对；${unsupported} 个币种该交易所未公开支持，使用备用行情。`
+                ? `公開API取得成功 ${exchange.realApiPairCount}/${supportedPairs.length} ペア。${unsupported} 銘柄はこの取引所の公開APIで未対応のため、バックアップ価格を使用しています。`
                 : undefined;
           } else {
             exchange.lastStatus = 'fallback';
-            exchange.lastError = `真实API本次未返回可解析行情，已使用备用行情源。尝试交易对 ${supportedPairs.length} 个。`;
+            exchange.lastError = `公開APIから解析可能な価格情報を取得できなかったため、バックアップ価格を使用しています。確認対象ペア数: ${supportedPairs.length}。`;
           }
         }),
       );
@@ -2820,7 +2820,7 @@ export class AppService {
       const invitee = this.customers.get(reward.inviteeCustomerId);
       if (reward.status === 'frozen' && inviter?.kycStatus === 'approved' && invitee?.kycStatus === 'approved') {
         reward.status = 'posted';
-        this.adjustBalance(inviter.id, 'JPY', Number(reward.amountJpy), 'invite_reward', '招待報酬', '邀请返佣入账');
+        this.adjustBalance(inviter.id, 'JPY', Number(reward.amountJpy), 'invite_reward', '招待報酬', '招待報酬の反映');
       }
     });
   }
