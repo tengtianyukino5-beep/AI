@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Headers, MessageEvent, Param, Patch, Post, Query, Sse } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { interval, map, Observable, startWith } from 'rxjs';
-import { AppService } from './app.service';
+import { AdminPermission, AppService } from './app.service';
 
 type Asset = 'JPY' | 'USDT' | 'BTC' | 'ETH';
 type VipLevel = 'VIP0' | 'VIP1' | 'VIP2' | 'VIP3';
@@ -138,14 +138,14 @@ export class AppController {
   @Get('admin/state')
   adminState(@Headers('authorization') authorization?: string) {
     return this.safe(() => {
-      this.admin(authorization);
+      this.admin(authorization, 'admin.view');
       return this.appService.adminState();
     });
   }
 
   @Sse('admin/state/stream')
   adminStateStream(@Query('token') token?: string): Observable<MessageEvent> {
-    this.appService.adminByToken(token ?? '');
+    this.appService.adminByToken(token ?? '', 'admin.view');
     return interval(1500).pipe(
       startWith(0),
       map(() => ({
@@ -157,32 +157,32 @@ export class AppController {
 
   @Post('admin/kyc/:customerId/approve')
   approveKyc(@Headers('authorization') authorization: string | undefined, @Param('customerId') customerId: string) {
-    return this.safe(() => this.appService.approveKyc(customerId, this.admin(authorization)));
+    return this.safe(() => this.appService.approveKyc(customerId, this.admin(authorization, 'kyc.approve')));
   }
 
   @Post('admin/kyc/:customerId/reject')
   rejectKyc(@Headers('authorization') authorization: string | undefined, @Param('customerId') customerId: string) {
-    return this.safe(() => this.appService.rejectKyc(customerId, this.admin(authorization)));
+    return this.safe(() => this.appService.rejectKyc(customerId, this.admin(authorization, 'kyc.approve')));
   }
 
   @Post('admin/deposits/:depositId/approve')
   approveDeposit(@Headers('authorization') authorization: string | undefined, @Param('depositId') depositId: string) {
-    return this.safe(() => this.appService.approveDeposit(depositId, this.admin(authorization)));
+    return this.safe(() => this.appService.approveDeposit(depositId, this.admin(authorization, 'deposit.approve')));
   }
 
   @Post('admin/deposits/:depositId/reject')
   rejectDeposit(@Headers('authorization') authorization: string | undefined, @Param('depositId') depositId: string) {
-    return this.safe(() => this.appService.rejectDeposit(depositId, this.admin(authorization)));
+    return this.safe(() => this.appService.rejectDeposit(depositId, this.admin(authorization, 'deposit.approve')));
   }
 
   @Post('admin/withdrawals/:withdrawalId/approve')
   approveWithdrawal(@Headers('authorization') authorization: string | undefined, @Param('withdrawalId') withdrawalId: string) {
-    return this.safe(() => this.appService.approveWithdrawal(withdrawalId, this.admin(authorization)));
+    return this.safe(() => this.appService.approveWithdrawal(withdrawalId, this.admin(authorization, 'withdrawal.complete')));
   }
 
   @Post('admin/withdrawals/:withdrawalId/reject')
   rejectWithdrawal(@Headers('authorization') authorization: string | undefined, @Param('withdrawalId') withdrawalId: string) {
-    return this.safe(() => this.appService.rejectWithdrawal(withdrawalId, this.admin(authorization)));
+    return this.safe(() => this.appService.rejectWithdrawal(withdrawalId, this.admin(authorization, 'withdrawal.complete')));
   }
 
   @Post('admin/balances/adjust')
@@ -190,7 +190,7 @@ export class AppController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: { customerId: string; asset: Asset; amount: string; direction: 'credit' | 'debit'; reason: string },
   ) {
-    return this.safe(() => this.appService.adjustCustomerBalance(body, this.admin(authorization)));
+    return this.safe(() => this.appService.adjustCustomerBalance(body, this.admin(authorization, 'balance.adjust')));
   }
 
   @Patch('admin/customers/:customerId')
@@ -212,12 +212,12 @@ export class AppController {
       withdrawalEthAddress?: string;
     },
   ) {
-    return this.safe(() => this.appService.updateCustomer(customerId, body, this.admin(authorization)));
+    return this.safe(() => this.appService.updateCustomer(customerId, body, this.admin(authorization, 'customer.edit')));
   }
 
   @Post('admin/exchanges/refresh')
   refreshMarkets(@Headers('authorization') authorization?: string) {
-    return this.safe(() => this.appService.refreshMarketsNow(this.admin(authorization)));
+    return this.safe(() => this.appService.refreshMarketsNow(this.admin(authorization, 'exchange.update')));
   }
 
   @Patch('admin/exchanges/:exchangeId')
@@ -226,7 +226,7 @@ export class AppController {
     @Param('exchangeId') exchangeId: string,
     @Body() body: { intervalSeconds: number; enabled: boolean },
   ) {
-    return this.safe(() => this.appService.updateExchange(exchangeId, body, this.admin(authorization)));
+    return this.safe(() => this.appService.updateExchange(exchangeId, body, this.admin(authorization, 'exchange.update')));
   }
 
   @Patch('admin/vip/:level')
@@ -235,7 +235,7 @@ export class AppController {
     @Param('level') level: VipLevel,
     @Body() body: Record<string, unknown>,
   ) {
-    return this.safe(() => this.appService.updateVip(level, body, this.admin(authorization)));
+    return this.safe(() => this.appService.updateVip(level, body, this.admin(authorization, 'vip.update')));
   }
 
   @Patch('admin/deposit-addresses/:addressId')
@@ -244,15 +244,15 @@ export class AppController {
     @Param('addressId') addressId: string,
     @Body() body: { address?: string; memo?: string; minConfirmations?: number | string; enabled?: boolean },
   ) {
-    return this.safe(() => this.appService.updateDepositAddress(addressId, body, this.admin(authorization)));
+    return this.safe(() => this.appService.updateDepositAddress(addressId, body, this.admin(authorization, 'deposit.address.update')));
   }
 
   private customer(authorization?: string) {
     return this.appService.customerByToken(this.bearer(authorization));
   }
 
-  private admin(authorization?: string) {
-    return this.appService.adminByToken(this.bearer(authorization));
+  private admin(authorization?: string, permission: AdminPermission = 'admin.view') {
+    return this.appService.adminByToken(this.bearer(authorization), permission);
   }
 
   private bearer(authorization?: string) {

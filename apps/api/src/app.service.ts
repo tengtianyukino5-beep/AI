@@ -1,4 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 type Asset = 'JPY' | 'USDT' | 'BTC' | 'ETH';
 type CryptoAsset = Exclude<Asset, 'JPY'>;
@@ -6,6 +9,17 @@ type MarketAsset = CryptoAsset | 'XRP' | 'SOL' | 'DOT' | 'DOGE' | 'LTC' | 'MONA'
 type KycStatus = 'not_submitted' | 'pending' | 'approved' | 'rejected' | 'need_more_info';
 type VipLevel = 'VIP0' | 'VIP1' | 'VIP2' | 'VIP3';
 type CustomerStatus = 'active' | 'frozen' | 'disabled' | 'finance_review_required';
+export type AdminPermission =
+  | 'admin.view'
+  | 'customer.edit'
+  | 'kyc.approve'
+  | 'deposit.approve'
+  | 'deposit.address.update'
+  | 'withdrawal.complete'
+  | 'balance.adjust'
+  | 'vip.update'
+  | 'exchange.update'
+  | 'audit.view';
 type LedgerType =
   | 'deposit'
   | 'withdrawal'
@@ -341,6 +355,7 @@ interface AuditLog {
   targetType: string;
   targetId: string;
   detail: string;
+  riskLevel?: 'low' | 'medium' | 'high' | 'critical';
   createdAt: string;
 }
 
@@ -356,6 +371,8 @@ interface InviteReward {
 interface TokenRecord {
   actorId: string;
   role: 'customer' | 'admin';
+  permissions?: AdminPermission[];
+  expiresAt: number;
 }
 
 interface SupportMessage {
@@ -491,6 +508,18 @@ const arbitrageRiskBufferRate = 0.0005;
 const defaultSuccessRatePercent = 90;
 const opportunityThresholdSeconds = 0.01;
 const minimumAiBalanceJpy = 10000;
+const allAdminPermissions: AdminPermission[] = [
+  'admin.view',
+  'customer.edit',
+  'kyc.approve',
+  'deposit.approve',
+  'deposit.address.update',
+  'withdrawal.complete',
+  'balance.adjust',
+  'vip.update',
+  'exchange.update',
+  'audit.view',
+];
 
 @Injectable()
 export class AppService {
@@ -551,6 +580,7 @@ export class AppService {
   private readonly opportunities: SimulationOpportunity[] = [];
   private readonly orders: SimulationOrder[] = [];
   private readonly auditLogs: AuditLog[] = [];
+  private readonly auditLogPath = resolve(process.env.AUDIT_LOG_PATH || '.runtime/audit-log.jsonl');
   private readonly inviteRewards: InviteReward[] = [];
   private readonly supportMessages: SupportMessage[] = [];
   private readonly supportTickets = new Map<string, string>();
@@ -629,6 +659,7 @@ export class AppService {
   ];
 
   constructor() {
+    this.ensureAuditLogFile();
     this.exchanges.push(
       this.exchange('ex-okx', 'OKX', 'overseas', 'okx', 'https://www.okx.com/api/v5/market/ticker'),
       this.exchange('ex-htx', 'HTX', 'overseas', 'htx', 'https://api.huobi.pro/market/detail/merged'),
@@ -728,7 +759,7 @@ export class AppService {
 
   async customerLogin(email: string, password: string) {
     const customer = [...this.customers.values()].find((item) => item.email === email.toLowerCase().trim());
-    if (!customer || customer.password !== password) {
+    if (!customer || !this.verifyPassword(password, customer.password)) {
       throw new Error('メールアドレスまたはパスワードが正しくありません。');
     }
     if (customer.status !== 'active') {
@@ -738,21 +769,25 @@ export class AppService {
   }
 
   adminLogin(username: string, password: string) {
-    if (username !== 'yuki888' || password !== '123456') {
+    const admin = this.adminConfig();
+    if (username !== admin.username || !this.verifyAdminPassword(password, admin)) {
       this.audit('admin.login.failed', username, 'admin', username, '后台登录失败');
       throw new Error('アカウントまたはパスワードが正しくありません。');
     }
-    const token = this.token('admin_seed', 'admin');
+    const permissions = this.adminPermissions();
+    const token = this.token(admin.id, 'admin', permissions);
     this.audit('admin.login.success', username, 'admin', username, '后台登录成功');
     return {
       token,
       admin: {
-        id: 'admin_seed',
-        username: 'yuki888',
-        role: '超级管理员',
-        permissions: ['customer.edit', 'deposit.approve', 'balance.adjust', 'kyc.approve', 'vip.update'],
+        id: admin.id,
+        username: admin.username,
+        role: admin.role,
+        permissions,
       },
-      warning: '生产环境必须修改或禁用默认账号 yuki888 / 123456。',
+      warning: admin.usesDefaultPassword
+        ? '生产环境必须通过 ADMIN_USERNAME / ADMIN_PASSWORD 修改默认后台账号。'
+        : '后台账号已从服务器环境变量加载。',
     };
   }
 
@@ -761,6 +796,9 @@ export class AppService {
     if (!record || record.role !== 'customer') {
       throw new Error('ログインが必要です。');
     }
+    if (this.isTokenExpired(token, record)) {
+      throw new Error('セッションの有効期限が切れました。再度ログインしてください。');
+    }
     const customer = this.customers.get(record.actorId);
     if (!customer) {
       throw new Error('お客様情報が見つかりません。再度ログインしてください。');
@@ -768,12 +806,47 @@ export class AppService {
     return customer;
   }
 
-  adminByToken(token: string) {
+  adminByToken(token: string, requiredPermission: AdminPermission = 'admin.view') {
     const record = this.tokens.get(token);
     if (!record || record.role !== 'admin') {
       throw new Error('管理セッションの有効期限が切れました。再度ログインしてください。');
     }
+    if (this.isTokenExpired(token, record)) {
+      throw new Error('管理セッションの有効期限が切れました。再度ログインしてください。');
+    }
+    if (!record.permissions?.includes(requiredPermission)) {
+      this.audit('admin.permission.denied', record.actorId, 'admin', record.actorId, `缺少权限：${requiredPermission}`);
+      throw new Error('この操作を実行する権限がありません。');
+    }
     return record.actorId;
+  }
+
+  private adminConfig() {
+    const username = process.env.ADMIN_USERNAME || process.env.DEFAULT_ADMIN_USERNAME || 'yuki888';
+    const password = process.env.ADMIN_PASSWORD || process.env.DEFAULT_ADMIN_PASSWORD || '123456';
+    const passwordHash = process.env.ADMIN_PASSWORD_HASH;
+    return {
+      id: process.env.ADMIN_ID || 'admin_seed',
+      username,
+      password: passwordHash || this.hashPassword(password),
+      role: process.env.ADMIN_ROLE || '超级管理员',
+      usesDefaultPassword: !passwordHash && username === 'yuki888' && password === '123456',
+    };
+  }
+
+  private adminPermissions() {
+    const configured = (process.env.ADMIN_PERMISSIONS || '')
+      .split(',')
+      .map((permission) => permission.trim())
+      .filter(Boolean);
+    if (!configured.length) {
+      return allAdminPermissions;
+    }
+    const allowed = new Set(allAdminPermissions);
+    const permissions = configured.filter((permission): permission is AdminPermission =>
+      allowed.has(permission as AdminPermission),
+    );
+    return permissions.length ? permissions : allAdminPermissions;
   }
 
   async dashboard(customer: CustomerRecord) {
@@ -1485,7 +1558,7 @@ export class AppService {
     const customer: CustomerRecord = {
       id: this.id('cus'),
       email,
-      password,
+      password: this.hashPassword(password),
       name: email.split('@')[0],
       status: 'active',
       kycStatus,
@@ -1521,10 +1594,47 @@ export class AppService {
     };
   }
 
-  private token(actorId: string, role: 'customer' | 'admin') {
+  private token(actorId: string, role: 'customer' | 'admin', permissions?: AdminPermission[]) {
     const token = `${role}_${Math.random().toString(36).slice(2)}_${Date.now()}`;
-    this.tokens.set(token, { actorId, role });
+    const ttlHours = role === 'admin' ? this.numberEnv('ADMIN_SESSION_TTL_HOURS', 8) : this.numberEnv('CUSTOMER_SESSION_TTL_HOURS', 24);
+    this.tokens.set(token, { actorId, role, permissions, expiresAt: Date.now() + ttlHours * 60 * 60 * 1000 });
     return token;
+  }
+
+  private isTokenExpired(token: string, record: TokenRecord) {
+    if (Date.now() <= record.expiresAt) {
+      return false;
+    }
+    this.tokens.delete(token);
+    return true;
+  }
+
+  private hashPassword(password: string) {
+    const salt = randomBytes(16).toString('hex');
+    const hash = scryptSync(password, salt, 32).toString('hex');
+    return `scrypt$${salt}$${hash}`;
+  }
+
+  private verifyAdminPassword(password: string, admin: { password: string }) {
+    return this.verifyPassword(password, admin.password);
+  }
+
+  private verifyPassword(password: string, storedPassword: string) {
+    if (!storedPassword.startsWith('scrypt$')) {
+      return password === storedPassword;
+    }
+    const [, salt, hash] = storedPassword.split('$');
+    if (!salt || !hash) {
+      return false;
+    }
+    const expected = Buffer.from(hash, 'hex');
+    const actual = scryptSync(password, salt, expected.length);
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  }
+
+  private numberEnv(name: string, fallback: number) {
+    const value = Number(process.env[name]);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
   }
 
   private supportTicketNo(customerId: string) {
@@ -2859,15 +2969,54 @@ export class AppService {
   }
 
   private audit(action: string, operator: string, targetType: string, targetId: string, detail: string) {
-    this.auditLogs.unshift({
+    const entry: AuditLog = {
       id: this.id('aud'),
       action,
       operator,
       targetType,
       targetId,
       detail,
+      riskLevel: this.auditRiskLevel(action),
       createdAt: this.now(),
-    });
+    };
+    this.auditLogs.unshift(entry);
+    this.persistAuditLog(entry);
+  }
+
+  private auditRiskLevel(action: string): AuditLog['riskLevel'] {
+    if (action.includes('permission.denied') || action.includes('withdrawal.approve') || action.includes('balance.adjust')) {
+      return 'high';
+    }
+    if (
+      action.includes('kyc.') ||
+      action.includes('deposit.') ||
+      action.includes('withdrawal.') ||
+      action.includes('customer.update') ||
+      action.includes('vip.update') ||
+      action.includes('exchange.update') ||
+      action.includes('deposit_address.update')
+    ) {
+      return 'medium';
+    }
+    return 'low';
+  }
+
+  private persistAuditLog(entry: AuditLog) {
+    try {
+      appendFileSync(this.auditLogPath, `${JSON.stringify(entry)}\n`, 'utf8');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Audit log persistence failed: ${message}`);
+    }
+  }
+
+  private ensureAuditLogFile() {
+    try {
+      mkdirSync(dirname(this.auditLogPath), { recursive: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Audit log directory could not be created: ${message}`);
+    }
   }
 
   private zhLedgerTitle(type: LedgerEntry['ledgerType']) {

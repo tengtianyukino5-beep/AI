@@ -136,3 +136,28 @@ The development document already defines the production-grade direction:
 See:
 
 [AI Arbitrage Responsive Web Development Document](docs/ai-arbitrage-responsive-web-development.md)
+
+## Production Hardening
+
+The repository now includes the first production-hardening layer:
+
+- Environment-variable admin credentials.
+- Backend-enforced admin permissions.
+- Password hashing and session expiration.
+- Persistent JSONL audit log.
+- PostgreSQL initial schema.
+- Redis/PostgreSQL production compose file.
+- PostgreSQL backup script.
+- Legal/compliance technical checklist.
+
+Files:
+
+```text
+.env.production.example
+docker-compose.production.yml
+infra/postgres/001_initial_schema.sql
+scripts/backup-postgres.sh
+docs/production-hardening-checklist.md
+```
+
+Important: the current runtime still keeps business data in memory. Use the production-hardening checklist before handling real customer assets.

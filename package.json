@@ -8,6 +8,8 @@
     "codespace": "node scripts/start-codespace.js",
     "build": "pnpm -r build",
     "serve:local": "node scripts/serve-local.js",
+    "start:prod": "pnpm --filter @twodays/api start",
+    "backup:postgres": "bash scripts/backup-postgres.sh",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "format": "prettier --write ."

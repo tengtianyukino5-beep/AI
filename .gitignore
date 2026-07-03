@@ -9,5 +9,9 @@ build/
 coverage/
 .DS_Store
 *.log
+.runtime/
+backups/
+*.dump
+*.dump.gz
 apps/web/.vite/
 apps/api/.nest/
