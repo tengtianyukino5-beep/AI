@@ -247,6 +247,14 @@ export class AppController {
     return this.safe(() => this.appService.updateDepositAddress(addressId, body, this.admin(authorization, 'deposit.address.update')));
   }
 
+  @Patch('admin/support-config')
+  updateSupportConfig(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { lineUrl?: string; lineQrUrl?: string; noteJa?: string },
+  ) {
+    return this.safe(() => this.appService.updateSupportConfig(body, this.admin(authorization, 'admin.view')));
+  }
+
   private customer(authorization?: string) {
     return this.appService.customerByToken(this.bearer(authorization));
   }

@@ -43,6 +43,7 @@ import type {
   MarketTicker,
   SimulationOpportunity,
   SimulationOrder,
+  SupportConfig,
   SupportConversation,
   VipLevel,
   VipRule,
@@ -51,6 +52,8 @@ import type {
 
 const API_BASE = '/api/v1';
 const minimumAiBalanceJpy = 10000;
+const savedCustomerEmailKey = 'customerSavedEmail';
+const rememberCustomerLoginKey = 'customerRememberLogin';
 
 type CustomerSession = {
   token: string;
@@ -70,6 +73,7 @@ type AdminState = {
   orders: SimulationOrder[];
   vipRules: VipRule[];
   exchanges: ExchangeConfig[];
+  supportConfig: SupportConfig;
   inviteRewards: Array<{
     id: string;
     inviterCustomerId: string;
@@ -449,7 +453,10 @@ function CustomerAuth(props: {
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
 }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('');
+  const [rememberLogin, setRememberLogin] = useState(() => localStorage.getItem(rememberCustomerLoginKey) === 'true');
+  const [email, setEmail] = useState(() =>
+    localStorage.getItem(rememberCustomerLoginKey) === 'true' ? (localStorage.getItem(savedCustomerEmailKey) ?? '') : '',
+  );
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [inviteCode, setInviteCode] = useState('');
@@ -468,6 +475,13 @@ function CustomerAuth(props: {
       mode === 'login' ? 'ログインしました。' : '登録が完了しました。',
     );
     if (result) {
+      if (rememberLogin) {
+        localStorage.setItem(rememberCustomerLoginKey, 'true');
+        localStorage.setItem(savedCustomerEmailKey, email.trim());
+      } else {
+        localStorage.removeItem(rememberCustomerLoginKey);
+        localStorage.removeItem(savedCustomerEmailKey);
+      }
       props.onLogin(result);
     }
   }
@@ -514,7 +528,7 @@ function CustomerAuth(props: {
           <span>本人確認後にAI裁定機能をご利用いただけます。</span>
         </div>
       </div>
-      <form className="auth-card" onSubmit={submit}>
+      <form className="auth-card" onSubmit={submit} autoComplete="on">
         <div className="segmented">
           <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => setMode('login')}>
             ログイン
@@ -526,6 +540,9 @@ function CustomerAuth(props: {
         <label>
           メール
           <input
+            autoComplete="email"
+            inputMode="email"
+            name="email"
             value={email}
             onChange={(event) => {
               setEmail(event.target.value);
@@ -535,7 +552,31 @@ function CustomerAuth(props: {
         </label>
         <label>
           パスワード
-          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          <input
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            name="password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </label>
+        <label className="remember-login-row">
+          <input
+            checked={rememberLogin}
+            type="checkbox"
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setRememberLogin(checked);
+              if (!checked) {
+                localStorage.removeItem(rememberCustomerLoginKey);
+                localStorage.removeItem(savedCustomerEmailKey);
+              }
+            }}
+          />
+          <span>
+            ログイン情報を保存
+            <small>次回からメールアドレスを自動入力します。パスワードはブラウザの保存機能をご利用ください。</small>
+          </span>
         </label>
         {mode === 'register' ? (
           <>
@@ -2445,172 +2486,69 @@ function SupportPage(props: {
   call: <T>(path: string, options?: RequestInit, token?: string) => Promise<T>;
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
 }) {
-  const [category, setCategory] = useState('入出金について');
-  const [message, setMessage] = useState('');
-  const [conversation, setConversation] = useState<SupportConversation | null>(null);
-  const [inlineNotice, setInlineNotice] = useState('');
-  const [sending, setSending] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const messages = conversation?.messages ?? [];
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    props
-      .call<SupportConversation>('/customer/support', {}, props.token)
-      .then((result) => {
-        if (active) {
-          setConversation(result);
-          setInlineNotice('');
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setInlineNotice('サポートAPIへの接続を確認しています。しばらくしてから再度お試しください。');
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [props.token]);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!message.trim()) {
-      setInlineNotice('お問い合わせ内容を入力してください。');
-      return;
-    }
-    setSending(true);
-    const result = await props.run(
-      () =>
-        props.call<SupportConversation>(
-          '/customer/support/messages',
-          { method: 'POST', body: JSON.stringify({ category, message }) },
-          props.token,
-        ),
-      'サポートへ送信しました。',
-    );
-    if (result) {
-      setConversation(result);
-      setInlineNotice(`受付番号：${result.ticketNo}`);
-      setMessage('');
-    }
-    setSending(false);
-  }
+  const supportConfig = props.dashboard.supportConfig;
 
   return (
     <section className="support-page">
       <section className="panel support-hero">
         <div>
-          <p className="eyebrow">Support API</p>
-          <h2>オンラインサポート</h2>
-          <p>入出金、本人確認、資産交換、AI裁定の操作について、サポートAPIで会話履歴を管理します。</p>
+          <p className="eyebrow">LINE SUPPORT</p>
+          <h2>LINEサポート</h2>
+          <p>{supportConfig.noteJa}</p>
         </div>
         <div className="support-status-card">
-          <span>API状態</span>
-          <strong>{loading ? '接続確認中' : '接続済み'}</strong>
-          <small>{conversation?.ticketNo ? `受付番号 ${conversation.ticketNo}` : '新規受付を準備中'}</small>
+          <span>受付方法</span>
+          <strong>LINEで受付中</strong>
+          <small>{props.dashboard.customer.email}</small>
         </div>
       </section>
 
-      <section className="two-column support-workspace">
-        <form className="panel support-form" onSubmit={submit}>
+      <section className="two-column support-workspace line-support-workspace">
+        <section className="panel support-form line-support-card">
           <div className="panel-head">
             <div>
-              <p className="eyebrow">Contact</p>
-              <h2>お問い合わせ</h2>
+              <p className="eyebrow">QR CODE</p>
+              <h2>LINEを追加</h2>
             </div>
             <MessageCircle size={22} />
           </div>
-          <label>
-            お問い合わせ種別
-            <select value={category} onChange={(event) => setCategory(event.target.value)}>
-              <option>入出金について</option>
-              <option>本人確認について</option>
-              <option>資産交換について</option>
-              <option>AI裁定について</option>
-              <option>アカウントについて</option>
-            </select>
-          </label>
-          <label>
-            メッセージ
-            <textarea
-              rows={6}
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              placeholder="確認したい内容、業務番号、対象資産、操作日時などを入力してください。"
-            />
-          </label>
+          <div className="line-qr-frame">
+            <img alt="LINEサポートQRコード" src={supportConfig.lineQrUrl} />
+          </div>
+          <a className="primary-button line-support-button" href={supportConfig.lineUrl} rel="noreferrer" target="_blank">
+            <MessageCircle size={18} />
+            LINEで問い合わせる
+          </a>
           <div className="support-account-box">
             <span>アカウント</span>
             <strong>{customerDisplayNameJa(props.dashboard.customer)}</strong>
             <small>{props.dashboard.customer.email}</small>
           </div>
-          <button className="primary-button" disabled={sending} type="submit">
-            {sending ? '送信中...' : '送信する'}
-          </button>
-          {inlineNotice ? (
-            <div className={inlineNotice.startsWith('受付番号') ? 'runtime-banner light support-ticket success' : 'runtime-banner light support-ticket warning-runtime'}>
-              {inlineNotice.startsWith('受付番号') ? <CheckCircle2 size={18} /> : <Clock3 size={18} />}
-              <span>{inlineNotice}</span>
-            </div>
-          ) : null}
-        </form>
+        </section>
 
-        <aside className="panel support-chat-panel">
+        <aside className="panel support-chat-panel line-support-guide">
           <div className="panel-head">
             <div>
-              <p className="eyebrow">Conversation</p>
-              <h2>サポート会話</h2>
+              <p className="eyebrow">CONTACT GUIDE</p>
+              <h2>お問い合わせ前の確認</h2>
             </div>
-            <MessageCircle size={22} />
+            <Info size={22} />
           </div>
-          <div className="support-chat-list">
-            {loading ? <EmptyState text="サポートAPIへ接続しています。" /> : null}
-            {!loading && !messages.length ? <EmptyState text="まだメッセージはありません。お問い合わせを送信すると、この画面に会話履歴が表示されます。" /> : null}
-            {messages.map((item) => (
-              <article className={`support-message ${item.sender}`} key={item.id}>
-                <div>
-                  <strong>{item.sender === 'customer' ? 'お客様' : 'サポート'}</strong>
-                  <span>{formatTime(item.createdAt)}</span>
-                </div>
-                <p>{item.message}</p>
-                <small>
-                  {item.category} / {item.ticketNo}
-                </small>
-              </article>
-            ))}
+          <div className="support-guide-list">
+            <div>
+              <strong>本人確認</strong>
+              <span>登録メールアドレス、氏名、提出書類の種類をお知らせください。</span>
+            </div>
+            <div>
+              <strong>入出金</strong>
+              <span>業務番号、資産、ネットワーク、送金TxID、出金先を添えてご連絡ください。</span>
+            </div>
+            <div>
+              <strong>AI裁定</strong>
+              <span>注文番号、対象資産、表示された成功・失敗理由をお知らせください。</span>
+            </div>
           </div>
         </aside>
-      </section>
-
-      <section className="panel support-guide">
-        <div className="panel-head">
-          <div>
-            <p className="eyebrow">Guide</p>
-            <h2>お問い合わせ時の確認項目</h2>
-          </div>
-          <Info size={22} />
-        </div>
-        <div className="support-guide-list">
-          <div>
-            <strong>入出金</strong>
-            <span>業務番号、資産、ネットワーク、送金TxID、出金先、証明画像、審査状態を確認します。</span>
-          </div>
-          <div>
-            <strong>資産交換</strong>
-            <span>対象資産、数量、確認レート、価格ソース、API更新時刻、受取JPY見込額を確認します。</span>
-          </div>
-          <div>
-            <strong>AI裁定</strong>
-            <span>取引所、通貨ペア、価格差、手数料、スリッページ、成功・失敗理由を確認します。</span>
-          </div>
-        </div>
       </section>
     </section>
   );
@@ -3891,6 +3829,8 @@ function AdminRules(props: {
   );
   const [editingVipLevel, setEditingVipLevel] = useState<VipLevel | null>(null);
   const [editingExchangeId, setEditingExchangeId] = useState<string | null>(null);
+  const [supportDraft, setSupportDraft] = useState<SupportConfig>(props.state.supportConfig);
+  const [editingSupport, setEditingSupport] = useState(false);
   const [vipDrafts, setVipDrafts] = useState<Record<VipLevel, Partial<Record<VipDraftKey, string>>>>(() =>
     Object.fromEntries(
       props.state.vipRules.map((rule) => [
@@ -3928,6 +3868,11 @@ function AdminRules(props: {
       ) as Record<VipLevel, Partial<Record<VipDraftKey, string>>>,
     );
   }, [props.state.vipRules, editingVipLevel]);
+
+  useEffect(() => {
+    if (editingSupport) return;
+    setSupportDraft(props.state.supportConfig);
+  }, [props.state.supportConfig, editingSupport]);
 
   async function updateExchange(exchange: ExchangeConfig, intervalSeconds: number, enabled = exchange.enabled) {
     const result = await props.run(
@@ -3981,6 +3926,23 @@ function AdminRules(props: {
       '交易所行情 API 已刷新。',
     );
     if (result) await props.refresh();
+  }
+
+  async function updateSupportConfig(event: FormEvent) {
+    event.preventDefault();
+    const result = await props.run(
+      () =>
+        props.call<AdminState>(
+          '/admin/support-config',
+          { method: 'PATCH', body: JSON.stringify(supportDraft) },
+          props.token,
+        ),
+      'LINEサポート設定を保存しました。',
+    );
+    if (result) {
+      setEditingSupport(false);
+      await props.refresh();
+    }
   }
 
   return (
@@ -4056,6 +4018,61 @@ function AdminRules(props: {
             </article>
           ))}
         </div>
+      </div>
+      <div className="panel">
+        <form className="support-config-form" onSubmit={updateSupportConfig}>
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">LINE Support</p>
+              <h2>LINEサポート設定</h2>
+            </div>
+            <MessageCircle size={22} />
+          </div>
+          <label>
+            LINEリンク
+            <input
+              value={supportDraft.lineUrl}
+              onChange={(event) => {
+                setEditingSupport(true);
+                setSupportDraft((draft) => ({ ...draft, lineUrl: event.target.value }));
+              }}
+              placeholder="https://line.me/R/ti/p/@your-line-id"
+            />
+          </label>
+          <label>
+            QR画像URL
+            <input
+              value={supportDraft.lineQrUrl}
+              onChange={(event) => {
+                setEditingSupport(true);
+                setSupportDraft((draft) => ({ ...draft, lineQrUrl: event.target.value }));
+              }}
+              placeholder="空欄の場合はLINEリンクから自動生成"
+            />
+          </label>
+          <label>
+            客户前台说明（日语）
+            <textarea
+              rows={3}
+              value={supportDraft.noteJa}
+              onChange={(event) => {
+                setEditingSupport(true);
+                setSupportDraft((draft) => ({ ...draft, noteJa: event.target.value }));
+              }}
+            />
+          </label>
+          <div className="line-support-preview">
+            <img alt="LINE QR preview" src={supportDraft.lineQrUrl || `https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=12&data=${encodeURIComponent(supportDraft.lineUrl)}`} />
+            <div>
+              <strong>客户前台サポートに反映</strong>
+              <span>{supportDraft.lineUrl}</span>
+              <small>保存后会同步到客户前台，并保存到 PostgreSQL。</small>
+            </div>
+          </div>
+          <button className="secondary-button" type="submit">
+            LINE設定を保存
+          </button>
+        </form>
       </div>
       <div className="panel">
         <div className="panel-head">

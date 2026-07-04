@@ -338,6 +338,13 @@ export interface SupportConversation {
   updatedAt?: string;
 }
 
+export interface SupportConfig {
+  lineUrl: string;
+  lineQrUrl: string;
+  noteJa: string;
+  updatedAt: string;
+}
+
 export interface DashboardData {
   customer: CustomerProfile;
   balances: AssetBalance[];
@@ -358,6 +365,7 @@ export interface DashboardData {
   tokyoNow: string;
   disclosureJa: string;
   tradingRuntime: TradingRuntimeStatus;
+  supportConfig: SupportConfig;
 }
 
 export interface AdminSummary {

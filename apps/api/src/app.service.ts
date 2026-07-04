@@ -429,10 +429,18 @@ interface PersistentAppState {
   inviteRewards: InviteReward[];
   supportMessages: SupportMessage[];
   supportTickets: [string, string][];
+  supportConfig: SupportConfig;
   vipRules: VipRule[];
   exchanges: ExchangeConfig[];
   marketCache: [string, MarketCacheEntry][];
   usdJpyCache?: FxCacheEntry;
+}
+
+interface SupportConfig {
+  lineUrl: string;
+  lineQrUrl: string;
+  noteJa: string;
+  updatedAt: string;
 }
 
 type ExecutionMode = 'manual' | 'auto';
@@ -623,6 +631,12 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   private readonly inviteRewards: InviteReward[] = [];
   private readonly supportMessages: SupportMessage[] = [];
   private readonly supportTickets = new Map<string, string>();
+  private supportConfig: SupportConfig = {
+    lineUrl: process.env.LINE_SUPPORT_URL || 'https://line.me/R/ti/p/@your-line-id',
+    lineQrUrl: process.env.LINE_SUPPORT_QR_URL || '',
+    noteJa: 'LINE公式アカウントを追加し、登録メールアドレスとお問い合わせ内容をお送りください。',
+    updatedAt: new Date().toISOString(),
+  };
   private readonly marketCache = new Map<string, MarketCacheEntry>();
   private usdJpyCache?: FxCacheEntry;
   private readonly executionProvider: ExecutionProvider = new TestExecutionProvider();
@@ -867,6 +881,9 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     this.replaceArray(this.auditLogs, state.auditLogs);
     this.replaceArray(this.inviteRewards, state.inviteRewards);
     this.replaceArray(this.supportMessages, state.supportMessages);
+    if (state.supportConfig) {
+      this.supportConfig = this.normalizeSupportConfig(state.supportConfig);
+    }
 
     (state.quotes ?? []).forEach((quote) => {
       if (!quote.expiresAt || new Date(quote.expiresAt).getTime() > Date.now()) {
@@ -902,6 +919,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       inviteRewards: [...this.inviteRewards],
       supportMessages: [...this.supportMessages],
       supportTickets: [...this.supportTickets.entries()],
+      supportConfig: this.publicSupportConfig(),
       vipRules: [...this.vipRules],
       exchanges: [...this.exchanges],
       marketCache: [...this.marketCache.entries()],
@@ -1199,6 +1217,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       tokyoNow: this.tokyoNow(),
       disclosureJa,
       tradingRuntime,
+      supportConfig: this.publicSupportConfig(),
     };
   }
 
@@ -1584,6 +1603,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       exchanges: this.exchanges,
       inviteRewards: this.inviteRewards,
       auditLogs: this.auditLogs,
+      supportConfig: this.publicSupportConfig(),
       persistence: this.persistenceStatus(),
       reconciliation: this.reconciliation(),
     };
@@ -1850,6 +1870,18 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     return this.adminState();
   }
 
+  updateSupportConfig(input: { lineUrl?: string; lineQrUrl?: string; noteJa?: string }, operator: string) {
+    this.supportConfig = this.normalizeSupportConfig({
+      ...this.supportConfig,
+      lineUrl: input.lineUrl ?? this.supportConfig.lineUrl,
+      lineQrUrl: input.lineQrUrl ?? this.supportConfig.lineQrUrl,
+      noteJa: input.noteJa ?? this.supportConfig.noteJa,
+      updatedAt: this.now(),
+    });
+    this.audit('support_config.update', operator, 'support_config', 'line', 'LINEサポート設定を更新');
+    return this.adminState();
+  }
+
   async refreshMarketsNow(operator: string) {
     await this.refreshExternalMarkets(true);
     this.audit('exchange.refresh', operator, 'exchange', 'all', '手动刷新交易所行情 API');
@@ -1966,6 +1998,38 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const ticketNo = this.businessNo('SUP');
     this.supportTickets.set(customerId, ticketNo);
     return ticketNo;
+  }
+
+  private publicSupportConfig(): SupportConfig {
+    return this.normalizeSupportConfig(this.supportConfig);
+  }
+
+  private normalizeSupportConfig(config: SupportConfig): SupportConfig {
+    const lineUrl = this.safeSupportUrl(config.lineUrl, 'https://line.me/R/ti/p/@your-line-id');
+    const lineQrUrl = this.safeSupportUrl(
+      config.lineQrUrl,
+      `https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=16&data=${encodeURIComponent(lineUrl)}`,
+    );
+    const noteJa = config.noteJa?.trim() || 'LINE公式アカウントを追加し、登録メールアドレスとお問い合わせ内容をお送りください。';
+    return {
+      lineUrl,
+      lineQrUrl,
+      noteJa,
+      updatedAt: config.updatedAt || this.now(),
+    };
+  }
+
+  private safeSupportUrl(value: string | undefined, fallback: string) {
+    const text = value?.trim() || fallback;
+    try {
+      const url = new URL(text);
+      if (url.protocol === 'http:' || url.protocol === 'https:') {
+        return text;
+      }
+    } catch {
+      // Fall through to the fallback URL.
+    }
+    return fallback;
   }
 
   private supportReplyJa(category: string, message: string, customer: CustomerRecord) {
