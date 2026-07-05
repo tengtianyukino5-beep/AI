@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, MessageEvent, Param, Patch, Post, Query, Sse } from '@nestjs/common';
+import { Body, Controller, Get, Headers, MessageEvent, Param, Patch, Post, Query, Res, Sse } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { interval, map, Observable, startWith } from 'rxjs';
 import { AdminPermission, AppService } from './app.service';
@@ -14,6 +14,13 @@ interface ApiResponse<T> {
   requestId: string;
 }
 
+type FileResponse = {
+  setHeader: (key: string, value: string) => void;
+  status: (code: number) => FileResponse;
+  type: (value: string) => FileResponse;
+  send: (body: Buffer | string) => void;
+};
+
 @ApiTags('AI Arbitrage MVP')
 @Controller('api/v1')
 export class AppController {
@@ -22,6 +29,19 @@ export class AppController {
   @Get('health')
   health() {
     return this.ok(this.appService.health());
+  }
+
+  @Get('uploads/:storageKey')
+  uploadFile(@Param('storageKey') storageKey: string, @Res() response: FileResponse) {
+    try {
+      const file = this.appService.getUploadFile(storageKey);
+      response.setHeader('Cache-Control', 'private, max-age=3600');
+      response.setHeader('Content-Disposition', `inline; filename="${file.fileName}"`);
+      response.type(file.mimeType);
+      return response.status(200).send(file.body);
+    } catch {
+      return response.status(404).type('text/plain; charset=utf-8').send('Not Found');
+    }
   }
 
   @Post('auth/email-code/send')

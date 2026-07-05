@@ -1,7 +1,7 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, extname, relative, resolve } from 'node:path';
 import { Pool } from 'pg';
 
 type Asset = 'JPY' | 'USDT' | 'BTC' | 'ETH';
@@ -55,6 +55,7 @@ interface CustomerProfile {
   inviteCode: string;
   kycDocumentFrontName?: string;
   kycDocumentFrontDataUrl?: string;
+  kycDocumentFrontStorageKey?: string;
   withdrawalBankAccount?: string;
   withdrawalUsdtTrc20Address?: string;
   withdrawalUsdtErc20Address?: string;
@@ -92,6 +93,7 @@ interface DepositOrder {
   proofText: string;
   proofImageName?: string;
   proofImageDataUrl?: string;
+  proofImageStorageKey?: string;
   adminNote?: string;
   reviewedAt?: string;
   unitPriceJpy?: string;
@@ -376,6 +378,19 @@ interface TokenRecord {
   expiresAt: number;
 }
 
+interface EmailCodeRecord {
+  code: string;
+  expiresAt: number;
+  lastSentAt: number;
+  attempts: number;
+}
+
+interface StoredUpload {
+  body: Buffer;
+  mimeType: string;
+  fileName: string;
+}
+
 interface SupportMessage {
   id: string;
   ticketNo: string;
@@ -561,7 +576,7 @@ const allAdminPermissions: AdminPermission[] = [
 export class AppService implements OnModuleInit, OnModuleDestroy {
   private readonly customers = new Map<string, CustomerRecord>();
   private readonly tokens = new Map<string, TokenRecord>();
-  private readonly emailCodes = new Map<string, string>();
+  private readonly emailCodes = new Map<string, EmailCodeRecord>();
   private readonly balances = new Map<string, Map<Asset, AssetBalance>>();
   private readonly ledger: LedgerEntry[] = [];
   private readonly deposits: DepositOrder[] = [];
@@ -617,6 +632,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   private readonly orders: SimulationOrder[] = [];
   private readonly auditLogs: AuditLog[] = [];
   private readonly auditLogPath = resolve(process.env.AUDIT_LOG_PATH || '.runtime/audit-log.jsonl');
+  private readonly uploadRoot = resolve(process.env.UPLOAD_DIR || '.runtime/uploads');
   private readonly pgPool?: Pool;
   private readonly appStateKey = process.env.APP_STATE_KEY || 'primary';
   private readonly persistenceRequired = process.env.PERSISTENCE_REQUIRED === 'true';
@@ -714,6 +730,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   constructor() {
     this.pgPool = this.createPostgresPool();
     this.ensureAuditLogFile();
+    this.ensureUploadDirectory();
     this.exchanges.push(
       this.exchange('ex-okx', 'OKX', 'overseas', 'okx', 'https://www.okx.com/api/v5/market/ticker'),
       this.exchange('ex-htx', 'HTX', 'overseas', 'htx', 'https://api.huobi.pro/market/detail/merged'),
@@ -1043,12 +1060,29 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
   async sendEmailCode(email: string) {
     const normalizedEmail = email.toLowerCase().trim();
-    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+    if (!this.isValidEmail(normalizedEmail)) {
       throw new Error('メールアドレスを入力してください。');
+    }
+    const existingCustomer = [...this.customers.values()].find((customer) => customer.email === normalizedEmail);
+    if (existingCustomer) {
+      throw new Error('このメールアドレスはすでに登録されています。');
+    }
+    const now = Date.now();
+    const minIntervalMs = Math.max(10, this.numberEnv('EMAIL_CODE_MIN_INTERVAL_SECONDS', 60)) * 1000;
+    const existingCode = this.emailCodes.get(normalizedEmail);
+    if (existingCode && now - existingCode.lastSentAt < minIntervalMs) {
+      const waitSeconds = Math.ceil((minIntervalMs - (now - existingCode.lastSentAt)) / 1000);
+      throw new Error(`認証コードは送信済みです。${waitSeconds}秒後に再送してください。`);
     }
     const realEmailEnabled = this.realEmailEnabled();
     const code = realEmailEnabled ? this.emailCode() : '888888';
-    this.emailCodes.set(normalizedEmail, code);
+    const ttlMinutes = Math.max(1, this.numberEnv('EMAIL_CODE_TTL_MINUTES', 10));
+    this.emailCodes.set(normalizedEmail, {
+      code,
+      expiresAt: now + ttlMinutes * 60 * 1000,
+      lastSentAt: now,
+      attempts: 0,
+    });
     if (realEmailEnabled) {
       await this.sendEmailCodeViaProvider(normalizedEmail, code);
     }
@@ -1062,10 +1096,13 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
   async register(input: { email: string; password: string; code: string; inviteCode?: string }) {
     const email = input.email.toLowerCase().trim();
-    if (!email || !input.password) {
+    if (!this.isValidEmail(email) || !input.password) {
       throw new Error('メールアドレスとパスワードを入力してください。');
     }
-    if ((this.emailCodes.get(email) ?? (this.realEmailEnabled() ? '' : '888888')) !== input.code) {
+    if (input.password.length < 6) {
+      throw new Error('パスワードは6文字以上で入力してください。');
+    }
+    if (!this.consumeEmailCode(email, input.code)) {
       throw new Error('認証コードが正しくありません。');
     }
     const existing = [...this.customers.values()].find((customer) => customer.email === email);
@@ -1222,10 +1259,12 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   }
 
   submitKyc(customer: CustomerRecord, input: { fullName: string; documentNo: string; documentFrontName?: string; kycDocumentFrontDataUrl?: string }) {
+    const documentUpload = this.storeDataUrlUpload('kyc', customer.id, input.documentFrontName, input.kycDocumentFrontDataUrl);
     customer.name = input.fullName || customer.name;
     customer.kycStatus = 'pending';
     customer.kycDocumentFrontName = input.documentFrontName;
-    customer.kycDocumentFrontDataUrl = input.kycDocumentFrontDataUrl;
+    customer.kycDocumentFrontDataUrl = documentUpload?.url ?? this.compactDataUrl(input.kycDocumentFrontDataUrl);
+    customer.kycDocumentFrontStorageKey = documentUpload?.storageKey ?? customer.kycDocumentFrontStorageKey;
     this.audit(
       'kyc.submit',
       customer.email,
@@ -1320,6 +1359,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const pricing = await this.assetPricingSnapshot(input.asset, amount, true);
     const depositNetwork = input.asset === 'USDT' ? input.network : input.asset === 'BTC' ? 'Bitcoin' : 'Ethereum';
     const address = this.depositAddressFor(input.asset, depositNetwork);
+    const proofUpload = this.storeDataUrlUpload('deposit', customer.id, input.proofImageName, input.proofImageDataUrl);
     const deposit: DepositOrder = {
       id: this.id('dep'),
       businessNo: this.businessNo('DEP'),
@@ -1332,7 +1372,8 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       status: 'pending',
       proofText: input.proofText || 'transfer proof',
       proofImageName: input.proofImageName,
-      proofImageDataUrl: this.compactDataUrl(input.proofImageDataUrl),
+      proofImageDataUrl: proofUpload?.url ?? this.compactDataUrl(input.proofImageDataUrl),
+      proofImageStorageKey: proofUpload?.storageKey,
       adminNote: '管理部門の確認待ちです。承認後、対象資産の残高へ反映されます。',
       unitPriceJpy: String(pricing.unitPriceJpy),
       valuationJpy: String(pricing.valuationJpy),
@@ -2057,13 +2098,49 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     return String(Math.floor(Math.random() * 900000 + 100000));
   }
 
+  private isValidEmail(email: string) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
+  private consumeEmailCode(email: string, code: string) {
+    const normalizedCode = code.trim();
+    const record = this.emailCodes.get(email);
+    if (!record) {
+      return !this.realEmailEnabled() && normalizedCode === '888888';
+    }
+    if (Date.now() > record.expiresAt) {
+      this.emailCodes.delete(email);
+      return false;
+    }
+    record.attempts += 1;
+    if (record.attempts > Math.max(1, this.numberEnv('EMAIL_CODE_MAX_ATTEMPTS', 5))) {
+      this.emailCodes.delete(email);
+      return false;
+    }
+    const matched = record.code === normalizedCode;
+    if (matched) {
+      this.emailCodes.delete(email);
+    }
+    return matched;
+  }
+
+  private pruneExpiredEmailCodes() {
+    const now = Date.now();
+    [...this.emailCodes.entries()].forEach(([email, record]) => {
+      if (record.expiresAt < now) {
+        this.emailCodes.delete(email);
+      }
+    });
+  }
+
   private realEmailEnabled() {
     return Boolean(process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY);
   }
 
   private async sendEmailCodeViaProvider(email: string, code: string) {
-    const subject = 'AI Arbitrage Pro 認証コード';
-    const text = `認証コードは ${code} です。10分以内に登録画面へ入力してください。`;
+    const subject = 'seirenai \u8a8d\u8a3c\u30b3\u30fc\u30c9';
+    const text = `seirenai \u306e\u8a8d\u8a3c\u30b3\u30fc\u30c9\u306f ${code} \u3067\u3059\u300210\u5206\u4ee5\u5185\u306b\u767b\u9332\u753b\u9762\u3078\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002\u5fc3\u5f53\u305f\u308a\u304c\u306a\u3044\u5834\u5408\u306f\u3001\u3053\u306e\u30e1\u30fc\u30eb\u3092\u7834\u68c4\u3057\u3066\u304f\u3060\u3055\u3044\u3002`;
+    const from = this.emailFrom();
     if (process.env.RESEND_API_KEY) {
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -2072,14 +2149,14 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          from: process.env.EMAIL_FROM || 'AI Arbitrage Pro <onboarding@resend.dev>',
+          from: from.raw,
           to: [email],
           subject,
           text,
         }),
       });
       if (!response.ok) {
-        throw new Error(`認証メール送信に失敗しました。Resend API status=${response.status}`);
+        throw new Error(`\u8a8d\u8a3c\u30e1\u30fc\u30eb\u306e\u9001\u4fe1\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002Resend API status=${response.status}`);
       }
       return;
     }
@@ -2093,15 +2170,27 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
         },
         body: JSON.stringify({
           personalizations: [{ to: [{ email }] }],
-          from: { email: process.env.EMAIL_FROM || 'noreply@example.com', name: 'AI Arbitrage Pro' },
+          from: { email: from.email, name: from.name },
           subject,
           content: [{ type: 'text/plain', value: text }],
         }),
       });
       if (!response.ok) {
-        throw new Error(`認証メール送信に失敗しました。SendGrid API status=${response.status}`);
+        throw new Error(`\u8a8d\u8a3c\u30e1\u30fc\u30eb\u306e\u9001\u4fe1\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002SendGrid API status=${response.status}`);
       }
+      return;
     }
+
+    throw new Error('\u30e1\u30fc\u30eb\u9001\u4fe1\u30d7\u30ed\u30d0\u30a4\u30c0\u30fc\u304c\u8a2d\u5b9a\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002');
+  }
+
+  private emailFrom() {
+    const raw = process.env.EMAIL_FROM || 'seirenai <noreply@example.com>';
+    const match = raw.match(/^\s*(.*?)\s*<([^<>@\s]+@[^<>@\s]+)>\s*$/);
+    if (match) {
+      return { raw, name: match[1] || 'seirenai', email: match[2] };
+    }
+    return { raw, name: 'seirenai', email: raw };
   }
 
   private publicCustomer(customer: CustomerRecord): CustomerProfile {
@@ -3339,6 +3428,77 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       return undefined;
     }
     return value.length > 180000 ? undefined : value;
+  }
+
+  getUploadFile(storageKey: string): StoredUpload {
+    const cleanKey = storageKey.replace(/[^a-zA-Z0-9._-]/g, '');
+    if (!cleanKey || cleanKey !== storageKey) {
+      throw new Error('ファイルが見つかりません。');
+    }
+    const filePath = resolve(this.uploadRoot, cleanKey);
+    const relativePath = relative(this.uploadRoot, filePath);
+    if (relativePath.startsWith('..') || resolve(relativePath).startsWith('..') || !existsSync(filePath) || !statSync(filePath).isFile()) {
+      throw new Error('ファイルが見つかりません。');
+    }
+    return {
+      body: readFileSync(filePath),
+      mimeType: this.uploadMimeType(filePath),
+      fileName: cleanKey,
+    };
+  }
+
+  private storeDataUrlUpload(kind: 'kyc' | 'deposit', ownerId: string, originalName?: string, dataUrl?: string) {
+    const compact = this.compactDataUrl(dataUrl);
+    if (!compact) {
+      return undefined;
+    }
+    const parsed = compact.match(/^data:(image\/(?:jpeg|png|webp));base64,([a-zA-Z0-9+/=]+)$/);
+    if (!parsed) {
+      return undefined;
+    }
+    this.ensureUploadDirectory();
+    const extension = this.uploadExtension(parsed[1], originalName);
+    const storageKey = `${kind}_${ownerId}_${Date.now()}_${randomBytes(8).toString('hex')}${extension}`;
+    const filePath = resolve(this.uploadRoot, storageKey);
+    writeFileSync(filePath, Buffer.from(parsed[2], 'base64'));
+    return {
+      storageKey,
+      url: `/api/v1/uploads/${storageKey}`,
+    };
+  }
+
+  private ensureUploadDirectory() {
+    try {
+      mkdirSync(this.uploadRoot, { recursive: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Upload directory could not be created: ${message}`);
+    }
+  }
+
+  private uploadExtension(mimeType: string, originalName?: string) {
+    const extension = extname(originalName ?? '').toLowerCase();
+    if (['.jpg', '.jpeg', '.png', '.webp'].includes(extension)) {
+      return extension === '.jpeg' ? '.jpg' : extension;
+    }
+    if (mimeType === 'image/png') {
+      return '.png';
+    }
+    if (mimeType === 'image/webp') {
+      return '.webp';
+    }
+    return '.jpg';
+  }
+
+  private uploadMimeType(filePath: string) {
+    const extension = extname(filePath).toLowerCase();
+    if (extension === '.png') {
+      return 'image/png';
+    }
+    if (extension === '.webp') {
+      return 'image/webp';
+    }
+    return 'image/jpeg';
   }
 
   private reconciliation() {

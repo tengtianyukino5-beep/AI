@@ -46,6 +46,7 @@ export interface CustomerProfile {
   inviteCode: string;
   kycDocumentFrontName?: string;
   kycDocumentFrontDataUrl?: string;
+  kycDocumentFrontStorageKey?: string;
   withdrawalBankAccount?: string;
   withdrawalUsdtTrc20Address?: string;
   withdrawalUsdtErc20Address?: string;
@@ -83,6 +84,7 @@ export interface DepositOrder {
   proofText: string;
   proofImageName?: string;
   proofImageDataUrl?: string;
+  proofImageStorageKey?: string;
   adminNote?: string;
   reviewedAt?: string;
   unitPriceJpy?: string;

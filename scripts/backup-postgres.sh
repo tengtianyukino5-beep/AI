@@ -15,7 +15,16 @@ mkdir -p "$BACKUP_DIR"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 target="$BACKUP_DIR/ai_arbitrage_$timestamp.dump"
 
-pg_dump "$DATABASE_URL" --format=custom --no-owner --no-acl --file="$target"
+if command -v pg_dump >/dev/null 2>&1; then
+  pg_dump "$DATABASE_URL" --format=custom --no-owner --no-acl --file="$target"
+else
+  POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-ai-arbitrage_postgres_1}"
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "pg_dump was not found and docker is not available."
+    exit 1
+  fi
+  docker exec "$POSTGRES_CONTAINER" pg_dump "$DATABASE_URL" --format=custom --no-owner --no-acl > "$target"
+fi
 gzip -f "$target"
 
 find "$BACKUP_DIR" -name 'ai_arbitrage_*.dump.gz' -type f -mtime +"$RETENTION_DAYS" -delete
