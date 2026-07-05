@@ -42,6 +42,10 @@ export class WebController {
     if (request.path.startsWith('/api') || request.path.startsWith('/api-docs')) {
       return response.status(404).type('text/plain; charset=utf-8').send('Not Found');
     }
+    const staticPath = request.path.replace(/^\/+/, '');
+    if (extname(staticPath)) {
+      return this.sendStatic(response, staticPath);
+    }
     return this.sendIndex(response);
   }
 
