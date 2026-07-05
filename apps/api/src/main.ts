@@ -50,7 +50,12 @@ async function bootstrap() {
 }
 
 function loadEnvFiles() {
-  const candidates = [resolve(process.cwd(), '.env.production'), resolve(process.cwd(), '.env')];
+  const candidateRoots = [process.cwd(), process.env.INIT_CWD, resolve(process.cwd(), '..', '..')].filter(
+    (root): root is string => Boolean(root),
+  );
+  const candidates = Array.from(
+    new Set(candidateRoots.flatMap((root) => [resolve(root, '.env.production'), resolve(root, '.env')])),
+  );
   for (const filePath of candidates) {
     if (!existsSync(filePath)) {
       continue;
