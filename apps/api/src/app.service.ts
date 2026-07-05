@@ -1084,7 +1084,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       attempts: 0,
     });
     if (realEmailEnabled) {
-      await this.sendEmailCodeViaProvider(normalizedEmail, code);
+      await this.sendEmailCodeViaProvider(normalizedEmail, code, ttlMinutes);
     }
     return {
       email: normalizedEmail,
@@ -2137,9 +2137,22 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     return Boolean(process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY);
   }
 
-  private async sendEmailCodeViaProvider(email: string, code: string) {
-    const subject = 'seirenai \u8a8d\u8a3c\u30b3\u30fc\u30c9';
-    const text = `seirenai \u306e\u8a8d\u8a3c\u30b3\u30fc\u30c9\u306f ${code} \u3067\u3059\u300210\u5206\u4ee5\u5185\u306b\u767b\u9332\u753b\u9762\u3078\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002\u5fc3\u5f53\u305f\u308a\u304c\u306a\u3044\u5834\u5408\u306f\u3001\u3053\u306e\u30e1\u30fc\u30eb\u3092\u7834\u68c4\u3057\u3066\u304f\u3060\u3055\u3044\u3002`;
+  private async sendEmailCodeViaProvider(email: string, code: string, ttlMinutes: number) {
+    const subject = 'seirenai \u8a8d\u8a3c\u30b3\u30fc\u30c9\u306e\u304a\u77e5\u3089\u305b';
+    const supportUrl = process.env.PUBLIC_APP_URL || 'https://seirenai.com';
+    const text = [
+      'seirenai \u3092\u3054\u5229\u7528\u3044\u305f\u3060\u304d\u3042\u308a\u304c\u3068\u3046\u3054\u3056\u3044\u307e\u3059\u3002',
+      '',
+      '\u4ee5\u4e0b\u306e\u8a8d\u8a3c\u30b3\u30fc\u30c9\u3092\u767b\u9332\u753b\u9762\u306b\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      '',
+      `\u8a8d\u8a3c\u30b3\u30fc\u30c9\uff1a${code}`,
+      '',
+      `\u3053\u306e\u30b3\u30fc\u30c9\u306e\u6709\u52b9\u671f\u9650\u306f${ttlMinutes}\u5206\u3067\u3059\u3002`,
+      '\u304a\u5fc3\u5f53\u305f\u308a\u304c\u306a\u3044\u5834\u5408\u306f\u3001\u3053\u306e\u30e1\u30fc\u30eb\u3092\u7834\u68c4\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      '',
+      'seirenai \u30b5\u30dd\u30fc\u30c8',
+      supportUrl,
+    ].join('\n');
     const from = this.emailFrom();
     if (process.env.RESEND_API_KEY) {
       const response = await fetch('https://api.resend.com/emails', {
