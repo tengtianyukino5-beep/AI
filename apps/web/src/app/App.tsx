@@ -51,6 +51,7 @@ import type {
 } from '@twodays/shared';
 
 const API_BASE = '/api/v1';
+const emailCodeResendSeconds = 60;
 const minimumAiBalanceJpy = 10000;
 const savedCustomerEmailKey = 'customerSavedEmail';
 const rememberCustomerLoginKey = 'customerRememberLogin';
@@ -462,6 +463,23 @@ function CustomerAuth(props: {
   const [inviteCode, setInviteCode] = useState('');
   const [emailCodeSending, setEmailCodeSending] = useState(false);
   const [emailCodeSent, setEmailCodeSent] = useState(false);
+  const [emailCodeResendIn, setEmailCodeResendIn] = useState(0);
+
+  useEffect(() => {
+    if (emailCodeResendIn <= 0) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setEmailCodeResendIn((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [emailCodeResendIn]);
+
+  const emailCodeButtonLabel = emailCodeSending
+    ? '送信中...'
+    : emailCodeResendIn > 0
+      ? `再送信 ${emailCodeResendIn}秒`
+      : emailCodeSent
+        ? '再送信'
+        : '送信';
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -487,6 +505,9 @@ function CustomerAuth(props: {
   }
 
   async function sendEmailCode() {
+    if (emailCodeResendIn > 0) {
+      return;
+    }
     if (!email.trim()) {
       await props.run(() => Promise.reject(new Error('メールアドレスを入力してください。')));
       return;
@@ -498,10 +519,13 @@ function CustomerAuth(props: {
           method: 'POST',
           body: JSON.stringify({ email }),
         }),
-      '認証コードを送信しました。',
+      '認証コードをメールで送信しました。受信まで数分かかる場合があります。',
     );
     setEmailCodeSending(false);
     setEmailCodeSent(Boolean(result));
+    if (result) {
+      setEmailCodeResendIn(emailCodeResendSeconds);
+    }
   }
 
   return (
@@ -547,6 +571,7 @@ function CustomerAuth(props: {
             onChange={(event) => {
               setEmail(event.target.value);
               setEmailCodeSent(false);
+              setEmailCodeResendIn(0);
             }}
           />
         </label>
@@ -587,11 +612,11 @@ function CustomerAuth(props: {
               </label>
               <button
                 className="secondary-button"
-                disabled={emailCodeSending}
+                disabled={emailCodeSending || emailCodeResendIn > 0}
                 type="button"
                 onClick={() => void sendEmailCode()}
               >
-                {emailCodeSending ? '送信中...' : emailCodeSent ? '送信済み' : '送信'}
+                {emailCodeButtonLabel}
               </button>
             </div>
             <label>
