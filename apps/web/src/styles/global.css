@@ -148,10 +148,14 @@ button:disabled {
   place-items: center;
   border-radius: 8px;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.14), transparent),
-    #103f45;
+    linear-gradient(145deg, rgba(121, 242, 255, 0.22), rgba(216, 179, 90, 0.14)),
+    linear-gradient(135deg, #0e2537, #102f4f 52%, #06101b);
+  box-shadow:
+    inset 0 0 0 1px rgba(121, 242, 255, 0.34),
+    0 12px 26px rgba(0, 15, 29, 0.2);
   color: #ffffff;
   font-weight: 800;
+  letter-spacing: 0;
 }
 
 .admin-shell .brand-mark {
@@ -286,7 +290,9 @@ button:disabled {
 .customer-shell .side-nav button.active,
 .customer-shell .primary-button,
 .customer-shell .segmented button.active {
-  background: linear-gradient(135deg, #1668ff, #1f8fff);
+  background:
+    linear-gradient(145deg, rgba(121, 242, 255, 0.22), rgba(216, 179, 90, 0.14)),
+    linear-gradient(135deg, #0e2537, #102f4f 52%, #06101b);
   color: #ffffff;
 }
 

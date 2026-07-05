@@ -353,10 +353,10 @@ export function App() {
     <main className={`app-shell ${area === 'admin' ? 'admin-shell' : 'customer-shell'}`}>
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">AI</span>
+          <span className="brand-mark" aria-label="seirenai logo">S</span>
           <div>
-            <strong>AI Arbitrage Pro</strong>
-            <small>{area === 'admin' ? '管理后台' : 'AI裁定アカウント'}</small>
+            <strong>seirenai</strong>
+            <small>{area === 'admin' ? '管理コンソール' : 'AI裁定アカウント'}</small>
           </div>
         </div>
       </header>

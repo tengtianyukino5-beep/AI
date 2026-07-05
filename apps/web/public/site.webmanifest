@@ -1,0 +1,16 @@
+{
+  "name": "seirenai",
+  "short_name": "seirenai",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#06101b",
+  "theme_color": "#07111f",
+  "icons": [
+    {
+      "src": "/favicon.svg?v=20260706",
+      "sizes": "64x64",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
