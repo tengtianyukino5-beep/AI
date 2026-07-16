@@ -235,6 +235,25 @@ export class AppController {
     return this.safe(() => this.appService.updateCustomer(customerId, body, this.admin(authorization, 'customer.edit')));
   }
 
+  @Patch('admin/customers/:customerId/deposit-addresses')
+  updateCustomerDepositAddresses(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('customerId') customerId: string,
+    @Body()
+    body: {
+      addresses?: Array<{
+        asset?: Exclude<Asset, 'JPY'>;
+        network?: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum';
+        address?: string;
+        memo?: string;
+        minConfirmations?: number | string;
+        enabled?: boolean;
+      }>;
+    },
+  ) {
+    return this.safe(() => this.appService.updateCustomerDepositAddresses(customerId, body, this.admin(authorization, 'customer.edit')));
+  }
+
   @Post('admin/exchanges/refresh')
   refreshMarkets(@Headers('authorization') authorization?: string) {
     return this.safe(() => this.appService.refreshMarketsNow(this.admin(authorization, 'exchange.update')));

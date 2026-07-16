@@ -142,6 +142,14 @@ type AdminPage = 'overview' | 'customers' | 'kyc' | 'deposits' | 'withdrawals' |
 type VipDraftKey = 'dailyLimit' | 'minBalanceJpy' | 'upgradeBalanceJpy' | 'highProfitProbability' | 'aiPower';
 type VipSaveStatus = 'saving' | 'saved' | 'error';
 type AdminRealtimeState = 'offline' | 'connecting' | 'live' | 'fallback';
+type CustomerDepositAddressDraft = {
+  asset: Exclude<Asset, 'JPY'>;
+  network: DepositAddressConfig['network'];
+  address: string;
+  memo: string;
+  minConfirmations: string;
+  enabled: boolean;
+};
 type HistoryFilter = {
   query: string;
   status: string;
@@ -164,6 +172,13 @@ function vipDraftNumber(value: string | undefined, fallback: number) {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : fallback;
 }
+
+const customerDepositAddressTemplates: Array<Pick<CustomerDepositAddressDraft, 'asset' | 'network' | 'minConfirmations'>> = [
+  { asset: 'ETH', network: 'Ethereum', minConfirmations: '12' },
+  { asset: 'BTC', network: 'Bitcoin', minConfirmations: '3' },
+  { asset: 'USDT', network: 'ERC-20', minConfirmations: '20' },
+  { asset: 'USDT', network: 'TRC-20', minConfirmations: '20' },
+];
 
 const customerNav: Array<{ key: CustomerPage; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'dashboard', label: 'ホーム', icon: LayoutDashboard },
@@ -3199,6 +3214,7 @@ function AdminCustomers(props: {
 }) {
   const [selectedId, setSelectedId] = useState(props.state.customers[0]?.id ?? '');
   const selected = props.state.customers.find((customer) => customer.id === selectedId) ?? props.state.customers[0];
+  const [editingCustomerDepositAddresses, setEditingCustomerDepositAddresses] = useState(false);
   const [draft, setDraft] = useState({
     name: selected?.name ?? '',
     status: selected?.status ?? 'active',
@@ -3212,6 +3228,9 @@ function AdminCustomers(props: {
     withdrawalBtcAddress: selected?.withdrawalBtcAddress ?? '',
     withdrawalEthAddress: selected?.withdrawalEthAddress ?? '',
   });
+  const [customerDepositDrafts, setCustomerDepositDrafts] = useState<CustomerDepositAddressDraft[]>(() =>
+    customerDepositAddressDrafts(props.state, selected),
+  );
 
   useEffect(() => {
     if (!selected) return;
@@ -3229,6 +3248,11 @@ function AdminCustomers(props: {
       withdrawalEthAddress: selected.withdrawalEthAddress ?? '',
     });
   }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected || editingCustomerDepositAddresses) return;
+    setCustomerDepositDrafts(customerDepositAddressDrafts(props.state, selected));
+  }, [props.state.depositAddresses, selected?.id, editingCustomerDepositAddresses]);
 
   async function saveCustomer() {
     if (!selected) return;
@@ -3257,6 +3281,33 @@ function AdminCustomers(props: {
       '客户参数已保存，并同步到客户前台。',
     );
     if (result) await props.refresh();
+  }
+
+  function setCustomerDepositDraft(index: number, key: keyof CustomerDepositAddressDraft, value: string | boolean) {
+    setEditingCustomerDepositAddresses(true);
+    setCustomerDepositDrafts((drafts) =>
+      drafts.map((draftItem, draftIndex) => (draftIndex === index ? { ...draftItem, [key]: value } : draftItem)),
+    );
+  }
+
+  async function saveCustomerDepositAddresses() {
+    if (!selected) return;
+    const result = await props.run(
+      () =>
+        props.call<AdminState>(
+          `/admin/customers/${selected.id}/deposit-addresses`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ addresses: customerDepositDrafts }),
+          },
+          props.token,
+        ),
+      '客户专属入金地址已保存，并会同步到客户前台。',
+    );
+    if (result) {
+      setEditingCustomerDepositAddresses(false);
+      await props.refresh();
+    }
   }
 
   return (
@@ -3384,6 +3435,59 @@ function AdminCustomers(props: {
                 <input value={draft.withdrawalEthAddress} onChange={(event) => setDraft((item) => ({ ...item, withdrawalEthAddress: event.target.value }))} />
               </label>
             </div>
+            <div className="rule-note">
+              <strong>客户专属入金地址</strong>
+              <p>这里设置后，客户前台原来的入金页面会自动读取该客户自己的地址。旧入金订单仍保留提交时的地址快照。</p>
+            </div>
+            <div className="admin-list customer-deposit-address-list">
+              {customerDepositDrafts.map((addressDraft, index) => (
+                <article className="admin-row deposit-address-row" key={`${addressDraft.asset}-${addressDraft.network}`}>
+                  <div>
+                    <strong>{addressDraft.asset} / {addressDraft.network}</strong>
+                    <p>{addressDraft.enabled ? '客户前台显示此专属地址' : '未启用时客户前台不会显示此专属地址'}</p>
+                    <small>如果此客户没有专属地址，系统会临时使用平台默认地址；保存专属地址后会优先使用专属地址。</small>
+                  </div>
+                  <div className="address-editor">
+                    <label>
+                      入金地址
+                      <input
+                        value={addressDraft.address}
+                        onChange={(event) => setCustomerDepositDraft(index, 'address', event.target.value)}
+                        placeholder={`${addressDraft.asset} ${addressDraft.network} 专属地址`}
+                      />
+                    </label>
+                    <label>
+                      Memo / Tag
+                      <input
+                        value={addressDraft.memo}
+                        onChange={(event) => setCustomerDepositDraft(index, 'memo', event.target.value)}
+                        placeholder="可选"
+                      />
+                    </label>
+                    <label>
+                      确认数
+                      <input
+                        min="1"
+                        type="number"
+                        value={addressDraft.minConfirmations}
+                        onChange={(event) => setCustomerDepositDraft(index, 'minConfirmations', event.target.value)}
+                      />
+                    </label>
+                    <label className="checkbox-label">
+                      <input
+                        checked={addressDraft.enabled}
+                        type="checkbox"
+                        onChange={(event) => setCustomerDepositDraft(index, 'enabled', event.target.checked)}
+                      />
+                      启用
+                    </label>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <button className="secondary-button" type="button" onClick={() => void saveCustomerDepositAddresses()}>
+              保存客户专属入金地址
+            </button>
             <button className="primary-button" type="button" onClick={() => void saveCustomer()}>
               保存客户参数
             </button>
@@ -3483,9 +3587,10 @@ function AdminDeposits(props: {
 }) {
   const [selectedDeposit, setSelectedDeposit] = useState<DepositOrder | null>(null);
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
+  const platformDepositAddresses = props.state.depositAddresses.filter((item) => !item.customerId);
   const [addressDrafts, setAddressDrafts] = useState<Record<string, { address: string; memo: string; minConfirmations: string; enabled: boolean }>>(() =>
     Object.fromEntries(
-      props.state.depositAddresses.map((item) => [
+      platformDepositAddresses.map((item) => [
         item.id,
         {
           address: item.address,
@@ -3501,7 +3606,7 @@ function AdminDeposits(props: {
     if (editingAddressId) return;
     setAddressDrafts(
       Object.fromEntries(
-        props.state.depositAddresses.map((item) => [
+        platformDepositAddresses.map((item) => [
           item.id,
           {
             address: item.address,
@@ -3655,7 +3760,7 @@ function AdminDeposits(props: {
           <SlidersHorizontal size={22} />
         </div>
         <div className="admin-list">
-          {props.state.depositAddresses.map((address) => {
+          {platformDepositAddresses.map((address) => {
             const draft = addressDrafts[address.id] ?? {
               address: address.address,
               memo: address.memo ?? '',
@@ -5293,6 +5398,24 @@ function marketSourceJa(source?: SimulationOrder['marketSource']) {
 
 function customerEmail(state: AdminState, customerId: string) {
   return state.customers.find((customer) => customer.id === customerId)?.email ?? customerId;
+}
+
+function customerDepositAddressDrafts(state: AdminState, customer?: CustomerProfile): CustomerDepositAddressDraft[] {
+  return customerDepositAddressTemplates.map((template) => {
+    const address = customer
+      ? state.depositAddresses.find(
+          (item) => item.customerId === customer.id && item.asset === template.asset && item.network === template.network,
+        )
+      : undefined;
+    return {
+      asset: template.asset,
+      network: template.network,
+      address: address?.address ?? '',
+      memo: address?.memo ?? '',
+      minConfirmations: String(address?.minConfirmations ?? template.minConfirmations),
+      enabled: address?.enabled ?? false,
+    };
+  });
 }
 
 function depositAddressFor(addresses: DepositAddressConfig[], asset: Exclude<Asset, 'JPY'>, network: DepositAddressConfig['network']) {

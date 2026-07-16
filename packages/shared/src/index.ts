@@ -100,6 +100,7 @@ export interface DepositOrder {
 
 export interface DepositAddressConfig {
   id: string;
+  customerId?: string;
   asset: CryptoAsset;
   network: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum';
   labelJa: string;

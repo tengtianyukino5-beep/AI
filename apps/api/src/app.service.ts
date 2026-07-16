@@ -109,6 +109,7 @@ interface DepositOrder {
 
 interface DepositAddressConfig {
   id: string;
+  customerId?: string;
   asset: CryptoAsset;
   network: 'TRC-20' | 'ERC-20' | 'Bitcoin' | 'Ethereum';
   labelJa: string;
@@ -1290,7 +1291,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       balances: this.getBalances(customer.id),
       deposits: this.deposits.filter((item) => item.customerId === customer.id),
       withdrawals: this.withdrawals.filter((item) => item.customerId === customer.id),
-      depositAddresses: this.depositAddresses.filter((item) => item.enabled),
+      depositAddresses: this.customerDepositAddresses(customer.id),
       ledger: this.ledger.filter((item) => item.customerId === customer.id).slice(0, 20),
       opportunities: this.opportunities.filter((item) => item.customerId === customer.id && item.status === 'available'),
       missedOpportunities: this.opportunities
@@ -1410,7 +1411,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     }
     const pricing = await this.assetPricingSnapshot(input.asset, amount, true);
     const depositNetwork = input.asset === 'USDT' ? input.network : input.asset === 'BTC' ? 'Bitcoin' : 'Ethereum';
-    const address = this.depositAddressFor(input.asset, depositNetwork);
+    const address = this.depositAddressFor(input.asset, depositNetwork, customer.id);
     const proofUpload = this.storeDataUrlUpload('deposit', customer.id, input.proofImageName, input.proofImageDataUrl);
     const deposit: DepositOrder = {
       id: this.id('dep'),
@@ -1890,6 +1891,87 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       'customer',
       customer.id,
       `编辑客户资料：VIP=${customer.vipLevel} 信用分=${customer.creditScore} 成功率=${customer.successRatePercent ?? defaultSuccessRatePercent}% 次数=${customer.manualDailyLimit ?? this.vipRule(customer.vipLevel).dailyLimit}`,
+    );
+    return this.adminState();
+  }
+
+  updateCustomerDepositAddresses(
+    customerId: string,
+    input: {
+      addresses?: Array<{
+        asset?: CryptoAsset;
+        network?: DepositAddressConfig['network'];
+        address?: string;
+        memo?: string;
+        minConfirmations?: number | string;
+        enabled?: boolean;
+      }>;
+    },
+    operator: string,
+  ) {
+    const customer = this.mustCustomer(customerId);
+    const items = Array.isArray(input.addresses) ? input.addresses : [];
+    if (!items.length) {
+      throw new Error('保存する入金アドレスがありません。');
+    }
+    const allowedNetworks: Record<CryptoAsset, DepositAddressConfig['network'][]> = {
+      BTC: ['Bitcoin'],
+      ETH: ['Ethereum'],
+      USDT: ['ERC-20', 'TRC-20'],
+    };
+    const changes: string[] = [];
+    items.forEach((item) => {
+      const asset = item.asset;
+      const network = item.network;
+      if (!asset || !['BTC', 'ETH', 'USDT'].includes(asset)) {
+        throw new Error('入金資産を正しく選択してください。');
+      }
+      if (!network || !allowedNetworks[asset].includes(network)) {
+        throw new Error(`${asset}の入金ネットワークが正しくありません。`);
+      }
+      const enabled = Boolean(item.enabled);
+      const addressText = typeof item.address === 'string' ? item.address.trim() : '';
+      if (enabled && !addressText) {
+        throw new Error(`${asset} ${network} の入金アドレスを入力してください。`);
+      }
+      const memo = typeof item.memo === 'string' && item.memo.trim() ? item.memo.trim() : undefined;
+      const minConfirmations = Math.max(1, Math.floor(Number(item.minConfirmations ?? 1)) || 1);
+      let address = this.depositAddresses.find(
+        (entry) => entry.customerId === customer.id && entry.asset === asset && entry.network === network,
+      );
+      const before = address ? `${address.address || '-'} / ${address.enabled ? 'enabled' : 'disabled'}` : 'not configured';
+      if (!address) {
+        address = {
+          id: this.id('caddr'),
+          customerId: customer.id,
+          asset,
+          network,
+          labelJa: `${customer.email} ${this.depositAddressLabel(asset, network)}`,
+          labelZh: `${customer.email} ${asset} ${network} 入金地址`,
+          address: addressText,
+          memo,
+          minConfirmations,
+          enabled,
+          updatedAt: this.now(),
+        };
+        this.depositAddresses.push(address);
+      } else {
+        address.address = addressText;
+        address.memo = memo;
+        address.minConfirmations = minConfirmations;
+        address.enabled = enabled;
+        address.labelJa = `${customer.email} ${this.depositAddressLabel(asset, network)}`;
+        address.labelZh = `${customer.email} ${asset} ${network} 入金地址`;
+        address.updatedAt = this.now();
+      }
+      changes.push(`${asset}/${network}: ${before} -> ${address.address || '-'} / ${address.enabled ? 'enabled' : 'disabled'}`);
+    });
+    this.audit(
+      'customer.deposit_address.update',
+      operator,
+      'customer',
+      customer.id,
+      `${customer.email} 顧客専用入金アドレスを更新しました。${changes.join(' ; ')}`,
     );
     return this.adminState();
   }
@@ -2385,8 +2467,42 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private depositAddressFor(asset: CryptoAsset, network?: DepositOrder['network']) {
-    const address = this.depositAddresses.find((item) => item.asset === asset && item.network === network && item.enabled);
+  private depositAddressLabel(asset: CryptoAsset, network: DepositAddressConfig['network']) {
+    return `${asset} ${network} 入金アドレス`;
+  }
+
+  private depositAddressKey(asset: CryptoAsset, network: DepositAddressConfig['network']) {
+    return `${asset}:${network}`;
+  }
+
+  private customerDepositAddresses(customerId: string) {
+    const defaultAddresses = this.depositAddresses.filter((item) => !item.customerId);
+    const customerAddresses = this.depositAddresses.filter((item) => item.customerId === customerId);
+    const keys = new Set([
+      ...defaultAddresses.map((item) => this.depositAddressKey(item.asset, item.network)),
+      ...customerAddresses.map((item) => this.depositAddressKey(item.asset, item.network)),
+    ]);
+    return [...keys].flatMap((key) => {
+      const customerAddress = customerAddresses.find((item) => this.depositAddressKey(item.asset, item.network) === key);
+      if (customerAddress) {
+        return customerAddress.enabled ? [customerAddress] : [];
+      }
+      const defaultAddress = defaultAddresses.find((item) => this.depositAddressKey(item.asset, item.network) === key && item.enabled);
+      return defaultAddress ? [defaultAddress] : [];
+    });
+  }
+
+  private depositAddressFor(asset: CryptoAsset, network?: DepositOrder['network'], customerId?: string) {
+    const customerAddress = customerId
+      ? this.depositAddresses.find((item) => item.customerId === customerId && item.asset === asset && item.network === network)
+      : undefined;
+    if (customerAddress) {
+      if (!customerAddress.enabled) {
+        throw new Error(`${asset} ${network ?? ''} の入金アドレスは現在利用できません。管理部門に確認してください。`);
+      }
+      return customerAddress;
+    }
+    const address = this.depositAddresses.find((item) => !item.customerId && item.asset === asset && item.network === network && item.enabled);
     if (!address) {
       throw new Error(`${asset} ${network ?? ''} の入金アドレスは現在利用できません。管理部門に確認してください。`);
     }
