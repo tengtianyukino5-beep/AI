@@ -2905,6 +2905,32 @@ select:focus {
   font: inherit;
 }
 
+.vip-save-actions {
+  display: grid;
+  gap: 6px;
+  align-self: end;
+}
+
+.vip-save-status {
+  min-height: 18px;
+  color: rgba(219, 233, 228, 0.66);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.vip-save-status.saving {
+  color: #9fe4d3;
+}
+
+.vip-save-status.saved {
+  color: #74e7a2;
+}
+
+.vip-save-status.error {
+  color: #ffb4a8;
+}
+
 .rule-note {
   margin-bottom: 12px;
   background: rgba(143, 215, 199, 0.1);
@@ -4292,3 +4318,4 @@ tr:last-child td {
     font-size: 20px;
   }
 }
+

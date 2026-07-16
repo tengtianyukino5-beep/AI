@@ -1916,23 +1916,92 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     return this.adminState();
   }
 
+  private vipNumberInput(
+    value: unknown,
+    fallback: number,
+    label: string,
+    options: { min?: number; max?: number; integer?: boolean } = {},
+  ) {
+    if (value === undefined || value === null) {
+      return fallback;
+    }
+    if (typeof value === 'string' && value.trim() === '') {
+      throw new Error(`${label}を入力してください。`);
+    }
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+      throw new Error(`${label}は数値で入力してください。`);
+    }
+    if (options.integer && !Number.isInteger(numericValue)) {
+      throw new Error(`${label}は整数で入力してください。`);
+    }
+    if (options.min !== undefined && numericValue < options.min) {
+      throw new Error(`${label}は${options.min}以上で入力してください。`);
+    }
+    if (options.max !== undefined && numericValue > options.max) {
+      throw new Error(`${label}は${options.max}以下で入力してください。`);
+    }
+    return numericValue;
+  }
+
+  private vipAiPowerInput(value: unknown, fallback: string) {
+    const aiPower = typeof value === 'string' ? value.trim() : fallback;
+    if (!aiPower) {
+      throw new Error('AI算力を入力してください。');
+    }
+    if (aiPower.length > 24) {
+      throw new Error('AI算力は24文字以内で入力してください。');
+    }
+    return aiPower;
+  }
+
+  private vipChangeDetail(before: VipRule, after: VipRule) {
+    const fields: Array<{ key: keyof VipRule; label: string }> = [
+      { key: 'dailyLimit', label: '日次回数' },
+      { key: 'upgradeBalanceJpy', label: 'アップグレード条件JPY' },
+      { key: 'minBalanceJpy', label: '最低残高JPY' },
+      { key: 'highProfitProbability', label: '成功率/高利益確率%' },
+      { key: 'aiPower', label: 'AI算力' },
+      { key: 'intervalSeconds', label: 'API検知秒数' },
+      { key: 'profitFloorJpy', label: '利益下限JPY' },
+      { key: 'profitCapJpy', label: '利益上限JPY' },
+      { key: 'highProfitThresholdJpy', label: '高利益基準JPY' },
+    ];
+    const changes = fields
+      .filter(({ key }) => before[key] !== after[key])
+      .map(({ key, label }) => `${label}: ${before[key]} -> ${after[key]}`);
+    return changes.length
+      ? `${after.level} VIP設定を更新しました。${changes.join(' / ')}`
+      : `${after.level} VIP設定を保存しました。変更はありません。`;
+  }
+
   updateVip(level: VipLevel, input: Partial<VipRule>, operator: string) {
     const rule = this.vipRules.find((item) => item.level === level);
     if (!rule) {
       throw new Error('VIPルールが見つかりません。');
     }
-    Object.assign(rule, {
-      dailyLimit: Number(input.dailyLimit ?? rule.dailyLimit),
-      intervalSeconds: Number(input.intervalSeconds ?? rule.intervalSeconds),
-      minBalanceJpy: Number(input.minBalanceJpy ?? rule.minBalanceJpy),
-      profitFloorJpy: Number(input.profitFloorJpy ?? rule.profitFloorJpy),
-      profitCapJpy: Number(input.profitCapJpy ?? rule.profitCapJpy),
-      highProfitThresholdJpy: Number(input.highProfitThresholdJpy ?? rule.highProfitThresholdJpy),
-      highProfitProbability: Number(input.highProfitProbability ?? rule.highProfitProbability),
-      upgradeBalanceJpy: Number(input.upgradeBalanceJpy ?? rule.upgradeBalanceJpy),
-      aiPower: typeof input.aiPower === 'string' && input.aiPower.trim() ? input.aiPower.trim() : rule.aiPower,
-    });
-    this.audit('vip.update', operator, 'vip_rule', level, '修改 VIP / 利润规则');
+    const before = { ...rule };
+    const nextRule: VipRule = {
+      ...rule,
+      dailyLimit: this.vipNumberInput(input.dailyLimit, rule.dailyLimit, '日次回数', { min: 0, integer: true }),
+      intervalSeconds: this.vipNumberInput(input.intervalSeconds, rule.intervalSeconds, 'API検知秒数', { min: 0.01 }),
+      minBalanceJpy: this.vipNumberInput(input.minBalanceJpy, rule.minBalanceJpy, '最低残高JPY', { min: 0 }),
+      profitFloorJpy: this.vipNumberInput(input.profitFloorJpy, rule.profitFloorJpy, '利益下限JPY', { min: 0 }),
+      profitCapJpy: this.vipNumberInput(input.profitCapJpy, rule.profitCapJpy, '利益上限JPY', { min: 0 }),
+      highProfitThresholdJpy: this.vipNumberInput(input.highProfitThresholdJpy, rule.highProfitThresholdJpy, '高利益基準JPY', {
+        min: 0,
+      }),
+      highProfitProbability: this.vipNumberInput(input.highProfitProbability, rule.highProfitProbability, '成功率/高利益確率%', {
+        min: 0,
+        max: 100,
+      }),
+      upgradeBalanceJpy: this.vipNumberInput(input.upgradeBalanceJpy, rule.upgradeBalanceJpy, 'アップグレード条件JPY', {
+        min: 0,
+      }),
+      aiPower: this.vipAiPowerInput(input.aiPower, rule.aiPower),
+    };
+    Object.assign(rule, nextRule);
+    this.audit('vip.update', operator, 'vip_rule', level, this.vipChangeDetail(before, rule));
     return this.adminState();
   }
 

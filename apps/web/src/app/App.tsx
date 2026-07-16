@@ -140,6 +140,7 @@ type CustomerPage =
   | 'my';
 type AdminPage = 'overview' | 'customers' | 'kyc' | 'deposits' | 'withdrawals' | 'balances' | 'rules' | 'audit';
 type VipDraftKey = 'dailyLimit' | 'minBalanceJpy' | 'upgradeBalanceJpy' | 'highProfitProbability' | 'aiPower';
+type VipSaveStatus = 'saving' | 'saved' | 'error';
 type AdminRealtimeState = 'offline' | 'connecting' | 'live' | 'fallback';
 type HistoryFilter = {
   query: string;
@@ -148,6 +149,21 @@ type HistoryFilter = {
   fromDate: string;
   toDate: string;
 };
+
+function vipRuleDraft(rule: VipRule): Record<VipDraftKey, string> {
+  return {
+    dailyLimit: String(rule.dailyLimit),
+    minBalanceJpy: String(rule.minBalanceJpy),
+    upgradeBalanceJpy: String(rule.upgradeBalanceJpy),
+    highProfitProbability: String(rule.highProfitProbability),
+    aiPower: rule.aiPower,
+  };
+}
+
+function vipDraftNumber(value: string | undefined, fallback: number) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : fallback;
+}
 
 const customerNav: Array<{ key: CustomerPage; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'dashboard', label: 'ホーム', icon: LayoutDashboard },
@@ -3912,21 +3928,14 @@ function AdminRules(props: {
     Object.fromEntries(props.state.exchanges.map((exchange) => [exchange.id, String(exchange.intervalSeconds)])),
   );
   const [editingVipLevel, setEditingVipLevel] = useState<VipLevel | null>(null);
+  const [savingVipLevel, setSavingVipLevel] = useState<VipLevel | null>(null);
+  const [vipSaveStatus, setVipSaveStatus] = useState<Partial<Record<VipLevel, VipSaveStatus>>>({});
   const [editingExchangeId, setEditingExchangeId] = useState<string | null>(null);
   const [supportDraft, setSupportDraft] = useState<SupportConfig>(props.state.supportConfig);
   const [editingSupport, setEditingSupport] = useState(false);
   const [vipDrafts, setVipDrafts] = useState<Record<VipLevel, Partial<Record<VipDraftKey, string>>>>(() =>
     Object.fromEntries(
-      props.state.vipRules.map((rule) => [
-        rule.level,
-        {
-          dailyLimit: String(rule.dailyLimit),
-          minBalanceJpy: String(rule.minBalanceJpy),
-          upgradeBalanceJpy: String(rule.upgradeBalanceJpy),
-          highProfitProbability: String(rule.highProfitProbability),
-          aiPower: rule.aiPower,
-        },
-      ]),
+      props.state.vipRules.map((rule) => [rule.level, vipRuleDraft(rule)]),
     ) as Record<VipLevel, Partial<Record<VipDraftKey, string>>>,
   );
 
@@ -3936,22 +3945,14 @@ function AdminRules(props: {
   }, [props.state.exchanges, editingExchangeId]);
 
   useEffect(() => {
-    if (editingVipLevel) return;
+    const vipSyncPaused = Boolean(editingVipLevel || savingVipLevel || Object.values(vipSaveStatus).some((status) => status === 'saving' || status === 'saved'));
+    if (vipSyncPaused) return;
     setVipDrafts(
       Object.fromEntries(
-        props.state.vipRules.map((rule) => [
-          rule.level,
-          {
-            dailyLimit: String(rule.dailyLimit),
-            minBalanceJpy: String(rule.minBalanceJpy),
-            upgradeBalanceJpy: String(rule.upgradeBalanceJpy),
-            highProfitProbability: String(rule.highProfitProbability),
-            aiPower: rule.aiPower,
-          },
-        ]),
+        props.state.vipRules.map((rule) => [rule.level, vipRuleDraft(rule)]),
       ) as Record<VipLevel, Partial<Record<VipDraftKey, string>>>,
     );
-  }, [props.state.vipRules, editingVipLevel]);
+  }, [props.state.vipRules, editingVipLevel, savingVipLevel, vipSaveStatus]);
 
   useEffect(() => {
     if (editingSupport) return;
@@ -3976,19 +3977,27 @@ function AdminRules(props: {
 
   function setVipDraft(level: VipLevel, key: VipDraftKey, value: string) {
     setEditingVipLevel(level);
+    setVipSaveStatus((statuses) => {
+      const next = { ...statuses };
+      delete next[level];
+      return next;
+    });
     setVipDrafts((drafts) => ({ ...drafts, [level]: { ...(drafts[level] ?? {}), [key]: value } }));
   }
 
   async function updateVip(rule: VipRule) {
+    if (savingVipLevel) return;
     const draft = vipDrafts[rule.level] ?? {};
     const payload = {
       ...rule,
-      dailyLimit: Number(draft.dailyLimit ?? rule.dailyLimit),
-      minBalanceJpy: Number(draft.minBalanceJpy ?? rule.minBalanceJpy),
-      upgradeBalanceJpy: Number(draft.upgradeBalanceJpy ?? rule.upgradeBalanceJpy),
-      highProfitProbability: Number(draft.highProfitProbability ?? rule.highProfitProbability),
+      dailyLimit: draft.dailyLimit ?? String(rule.dailyLimit),
+      minBalanceJpy: draft.minBalanceJpy ?? String(rule.minBalanceJpy),
+      upgradeBalanceJpy: draft.upgradeBalanceJpy ?? String(rule.upgradeBalanceJpy),
+      highProfitProbability: draft.highProfitProbability ?? String(rule.highProfitProbability),
       aiPower: draft.aiPower ?? rule.aiPower,
     };
+    setSavingVipLevel(rule.level);
+    setVipSaveStatus((statuses) => ({ ...statuses, [rule.level]: 'saving' }));
     const result = await props.run(
       () =>
         props.call<AdminState>(
@@ -3996,12 +4005,28 @@ function AdminRules(props: {
           { method: 'PATCH', body: JSON.stringify(payload) },
           props.token,
         ),
-      'VIP 规则已保存，并会同步到客户前台。',
+      'VIP設定を保存しました。お客様画面へ反映済みです。',
     );
     if (result) {
+      const savedRule = result.vipRules.find((item) => item.level === rule.level);
+      if (savedRule) {
+        setVipDrafts((drafts) => ({ ...drafts, [rule.level]: vipRuleDraft(savedRule) }));
+      }
+      setVipSaveStatus((statuses) => ({ ...statuses, [rule.level]: 'saved' }));
       setEditingVipLevel(null);
-      await props.refresh();
+      await props.refresh().catch(() => undefined);
+      window.setTimeout(() => {
+        setVipSaveStatus((statuses) => {
+          if (statuses[rule.level] !== 'saved') return statuses;
+          const next = { ...statuses };
+          delete next[rule.level];
+          return next;
+        });
+      }, 3200);
+    } else {
+      setVipSaveStatus((statuses) => ({ ...statuses, [rule.level]: 'error' }));
     }
+    setSavingVipLevel(null);
   }
 
   async function refreshMarkets() {
@@ -4039,70 +4064,102 @@ function AdminRules(props: {
         <div className="admin-list">
           {[...props.state.vipRules]
             .sort((first, second) => vipLevelOrder.indexOf(first.level) - vipLevelOrder.indexOf(second.level))
-            .map((rule) => (
-            <article className="admin-row" key={rule.level}>
-              <div>
-                <strong>{rule.level}</strong>
-                <p>{formatJpy(rule.minBalanceJpy)} / {rule.dailyLimit} 次 / 日 / AI {rule.aiPower}</p>
-                <small>VIP 控制东京自然日内的套利机会次数；客户达到升级条件余额后可手动升级，升级时不扣除 JPY。</small>
-              </div>
-              <div className="vip-limit-editor">
-                <label>
-                  每日次数
-                  <input
-                    min="0"
-                    type="number"
-                    value={vipDrafts[rule.level]?.dailyLimit ?? String(rule.dailyLimit)}
-                    onChange={(event) => setVipDraft(rule.level, 'dailyLimit', event.target.value)}
-                    onFocus={() => setEditingVipLevel(rule.level)}
-                  />
-                </label>
-                <label>
-                  升级条件余额JPY
-                  <input
-                    min="0"
-                    type="number"
-                    value={vipDrafts[rule.level]?.upgradeBalanceJpy ?? String(rule.upgradeBalanceJpy)}
-                    onChange={(event) => setVipDraft(rule.level, 'upgradeBalanceJpy', event.target.value)}
-                    onFocus={() => setEditingVipLevel(rule.level)}
-                  />
-                </label>
-                <label>
-                  最低余额JPY
-                  <input
-                    min="0"
-                    type="number"
-                    value={vipDrafts[rule.level]?.minBalanceJpy ?? String(rule.minBalanceJpy)}
-                    onChange={(event) => setVipDraft(rule.level, 'minBalanceJpy', event.target.value)}
-                    onFocus={() => setEditingVipLevel(rule.level)}
-                  />
-                </label>
-                <label>
-                  成功率/高收益概率%
-                  <input
-                    min="0"
-                    max="100"
-                    type="number"
-                    value={vipDrafts[rule.level]?.highProfitProbability ?? String(rule.highProfitProbability)}
-                    onChange={(event) => setVipDraft(rule.level, 'highProfitProbability', event.target.value)}
-                    onFocus={() => setEditingVipLevel(rule.level)}
-                  />
-                </label>
-                <label>
-                  AI算力
-                  <input
-                    value={vipDrafts[rule.level]?.aiPower ?? rule.aiPower}
-                    onChange={(event) => setVipDraft(rule.level, 'aiPower', event.target.value)}
-                    onFocus={() => setEditingVipLevel(rule.level)}
-                    placeholder="例：2x"
-                  />
-                </label>
-                <button className="secondary-button" type="button" onClick={() => void updateVip(rule)}>
-                  保存
-                </button>
-              </div>
-            </article>
-          ))}
+            .map((rule) => {
+              const draft = vipDrafts[rule.level] ?? vipRuleDraft(rule);
+              const displayDailyLimit = vipDraftNumber(draft.dailyLimit, rule.dailyLimit);
+              const displayMinBalance = vipDraftNumber(draft.minBalanceJpy, rule.minBalanceJpy);
+              const displayUpgradeBalance = vipDraftNumber(draft.upgradeBalanceJpy, rule.upgradeBalanceJpy);
+              const displayProbability = vipDraftNumber(draft.highProfitProbability, rule.highProfitProbability);
+              const displayAiPower = draft.aiPower?.trim() || rule.aiPower;
+              const saveStatus = vipSaveStatus[rule.level];
+              const isSaving = saveStatus === 'saving';
+              const saveDisabled = Boolean(savingVipLevel);
+              return (
+                <article className="admin-row" key={rule.level}>
+                  <div>
+                    <strong>{rule.level}</strong>
+                    <p>升级条件 {formatJpy(displayUpgradeBalance)} / 最低余额 {formatJpy(displayMinBalance)}</p>
+                    <p>{displayDailyLimit} 次 / 日 / 成功率 {displayProbability}% / AI {displayAiPower}</p>
+                    <small>VIP 控制东京自然日内的套利机会次数；保存后客户前台的升级条件、AI裁定次数和算力会读取同一份规则。</small>
+                  </div>
+                  <div className="vip-limit-editor">
+                    <label>
+                      每日次数
+                      <input
+                        min="0"
+                        type="number"
+                        value={draft.dailyLimit ?? String(rule.dailyLimit)}
+                        onChange={(event) => setVipDraft(rule.level, 'dailyLimit', event.target.value)}
+                        onFocus={() => setEditingVipLevel(rule.level)}
+                      />
+                    </label>
+                    <label>
+                      升级条件余额JPY
+                      <input
+                        min="0"
+                        type="number"
+                        value={draft.upgradeBalanceJpy ?? String(rule.upgradeBalanceJpy)}
+                        onChange={(event) => setVipDraft(rule.level, 'upgradeBalanceJpy', event.target.value)}
+                        onFocus={() => setEditingVipLevel(rule.level)}
+                      />
+                    </label>
+                    <label>
+                      最低余额JPY
+                      <input
+                        min="0"
+                        type="number"
+                        value={draft.minBalanceJpy ?? String(rule.minBalanceJpy)}
+                        onChange={(event) => setVipDraft(rule.level, 'minBalanceJpy', event.target.value)}
+                        onFocus={() => setEditingVipLevel(rule.level)}
+                      />
+                    </label>
+                    <label>
+                      成功率/高收益概率%
+                      <input
+                        min="0"
+                        max="100"
+                        type="number"
+                        value={draft.highProfitProbability ?? String(rule.highProfitProbability)}
+                        onChange={(event) => setVipDraft(rule.level, 'highProfitProbability', event.target.value)}
+                        onFocus={() => setEditingVipLevel(rule.level)}
+                      />
+                    </label>
+                    <label>
+                      AI算力
+                      <input
+                        value={draft.aiPower ?? rule.aiPower}
+                        onChange={(event) => setVipDraft(rule.level, 'aiPower', event.target.value)}
+                        onFocus={() => setEditingVipLevel(rule.level)}
+                        placeholder="例：2x"
+                      />
+                    </label>
+                    <div className="vip-save-actions">
+                      <button className="secondary-button" disabled={saveDisabled} type="button" onClick={() => void updateVip(rule)}>
+                        {isSaving ? (
+                          <>
+                            <RefreshCw size={15} className="spin" />
+                            保存中...
+                          </>
+                        ) : saveStatus === 'saved' ? (
+                          '保存完了'
+                        ) : (
+                          '保存'
+                        )}
+                      </button>
+                      {saveStatus ? (
+                        <span className={`vip-save-status ${saveStatus}`}>
+                          {saveStatus === 'saving'
+                            ? '保存処理中'
+                            : saveStatus === 'saved'
+                              ? '前台へ反映済み'
+                              : '保存失敗'}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
         </div>
       </div>
       <div className="panel">
