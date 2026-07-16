@@ -52,9 +52,25 @@ import type {
 
 const API_BASE = '/api/v1';
 const emailCodeResendSeconds = 60;
+const vipLevelOrder: VipLevel[] = ['VIP0', 'VIP1', 'VIP2', 'VIP3', 'VIP4', 'VIP5', 'VIP6', 'VIP7'];
 const minimumAiBalanceJpy = 10000;
 const savedCustomerEmailKey = 'customerSavedEmail';
 const rememberCustomerLoginKey = 'customerRememberLogin';
+
+function inviteCodeFromUrl() {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  const params = new URLSearchParams(window.location.search);
+  return (params.get('invite') ?? params.get('inviteCode') ?? '').trim().toUpperCase();
+}
+
+function authModeFromUrl(): 'login' | 'register' {
+  if (typeof window === 'undefined') {
+    return 'login';
+  }
+  return window.location.pathname.startsWith('/register') || inviteCodeFromUrl() ? 'register' : 'login';
+}
 
 type CustomerSession = {
   token: string;
@@ -81,6 +97,11 @@ type AdminState = {
     inviteeCustomerId: string;
     amountJpy: string;
     status: string;
+    source?: string;
+    baseProfitJpy?: string;
+    rewardRatePercent?: number;
+    businessDateTokyo?: string;
+    sourceOrderId?: string;
     createdAt: string;
   }>;
   auditLogs: Array<{
@@ -453,14 +474,15 @@ function CustomerAuth(props: {
   onLogin: (session: CustomerSession) => void;
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
 }) {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const initialInviteCode = inviteCodeFromUrl();
+  const [mode, setMode] = useState<'login' | 'register'>(() => authModeFromUrl());
   const [rememberLogin, setRememberLogin] = useState(() => localStorage.getItem(rememberCustomerLoginKey) === 'true');
   const [email, setEmail] = useState(() =>
     localStorage.getItem(rememberCustomerLoginKey) === 'true' ? (localStorage.getItem(savedCustomerEmailKey) ?? '') : '',
   );
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
+  const [inviteCode, setInviteCode] = useState(initialInviteCode);
   const [emailCodeSending, setEmailCodeSending] = useState(false);
   const [emailCodeSent, setEmailCodeSent] = useState(false);
   const [emailCodeResendIn, setEmailCodeResendIn] = useState(0);
@@ -622,6 +644,7 @@ function CustomerAuth(props: {
             <label>
               招待コード
               <input value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} placeholder="任意" />
+              {initialInviteCode ? <small>招待リンクから自動入力されています。</small> : null}
             </label>
           </>
         ) : null}
@@ -2322,16 +2345,20 @@ function VipPage(props: {
   run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
   refresh: (token?: string) => Promise<DashboardData>;
 }) {
-  const levels: VipLevel[] = ['VIP0', 'VIP1', 'VIP2', 'VIP3'];
-  const currentIndex = levels.indexOf(props.dashboard.customer.vipLevel);
-  const nextLevel = currentIndex >= 0 && currentIndex < levels.length - 1 ? levels[currentIndex + 1] : null;
+  const currentIndex = vipLevelOrder.indexOf(props.dashboard.customer.vipLevel);
+  const nextLevel = currentIndex >= 0 && currentIndex < vipLevelOrder.length - 1 ? vipLevelOrder[currentIndex + 1] : null;
   const nextRule = nextLevel ? props.dashboard.vipRules.find((rule) => rule.level === nextLevel) : null;
   const jpy = Number(balanceOf(props.dashboard.balances, 'JPY').available);
+  const requiredJpy = nextRule ? Number(nextRule.upgradeBalanceJpy) : 0;
+  const canUpgrade = Boolean(nextRule && jpy >= requiredJpy);
+  const sortedVipRules = [...props.dashboard.vipRules].sort(
+    (first, second) => vipLevelOrder.indexOf(first.level) - vipLevelOrder.indexOf(second.level),
+  );
 
   async function upgrade() {
     const result = await props.run(
       () => props.call<DashboardData>('/customer/vip/upgrade', { method: 'POST' }, props.token),
-      nextRule ? `${nextRule.level}へアップグレードしました。費用はJPY残高から控除されました。` : 'VIPレベルを確認しました。',
+      nextRule ? `${nextRule.level}へアップグレードしました。JPY残高は控除されません。` : 'VIPレベルを確認しました。',
     );
     if (result) {
       await props.refresh();
@@ -2347,21 +2374,21 @@ function VipPage(props: {
         </div>
         <BadgeCheck size={22} />
       </div>
-      <button className="primary-button" type="button" onClick={upgrade}>
-        {nextRule ? `${nextRule.level}へアップグレード` : '最高VIPレベル'}
+      <button className="primary-button" disabled={!canUpgrade} type="button" onClick={upgrade}>
+        {nextRule ? (canUpgrade ? `${nextRule.level}へアップグレード` : `${nextRule.level} 条件未達`) : '最高VIPレベル'}
       </button>
       {nextRule ? (
         <div className="rule-note">
-          <strong>次のアップグレード費用：{formatJpy(nextRule.upgradeBalanceJpy)}</strong>
-          <p>現在のJPY残高：{formatJpy(jpy)}。アップグレード成功時、費用はJPY残高から即時控除され、本日の利用上限は新しいVIP回数へ更新されます。</p>
+          <strong>次のアップグレード条件：JPY残高 {formatJpy(requiredJpy)} 以上</strong>
+          <p>現在のJPY残高：{formatJpy(jpy)}。条件を満たすとお客様ご自身で手動アップグレードできます。アップグレード時にJPY残高は控除されません。</p>
         </div>
       ) : null}
       <div className="vip-grid">
-        {props.dashboard.vipRules.map((rule) => (
+        {sortedVipRules.map((rule) => (
           <div className={props.dashboard.customer.vipLevel === rule.level ? 'vip-card active' : 'vip-card'} key={rule.level}>
             <strong>{rule.level}</strong>
             <span>最低残高 {formatJpy(rule.minBalanceJpy)}</span>
-            <span>アップグレード費用 {formatJpy(rule.upgradeBalanceJpy)}</span>
+            <span>アップグレード条件 {formatJpy(rule.upgradeBalanceJpy)}</span>
             <span>機会 {rule.dailyLimit} / 日</span>
             <span>AI算力 {rule.aiPower}</span>
             <span>東京自然日 00:00 - 23:59</span>
@@ -2382,7 +2409,18 @@ function InvitePage(props: {
     inviteCode: string;
     inviteUrl: string;
     invited: CustomerProfile[];
-    rewards: Array<{ id: string; amountJpy: string; status: string; createdAt: string }>;
+    rewards: Array<{
+      id: string;
+      inviteeCustomerId: string;
+      amountJpy: string;
+      status: string;
+      source?: string;
+      baseProfitJpy?: string;
+      rewardRatePercent?: number;
+      businessDateTokyo?: string;
+      sourceOrderId?: string;
+      createdAt: string;
+    }>;
     rule: string;
   } | null>(null);
 
@@ -2391,6 +2429,11 @@ function InvitePage(props: {
       if (result) setInfo(result);
     });
   }, [props]);
+
+  const invitedById = new Map((info?.invited ?? []).map((customer) => [customer.id, customer]));
+  const totalPostedReward = (info?.rewards ?? [])
+    .filter((reward) => reward.status === 'posted')
+    .reduce((sum, reward) => sum + Number(reward.amountJpy), 0);
 
   return (
     <section className="panel">
@@ -2406,9 +2449,22 @@ function InvitePage(props: {
           <div className="code-box">{info.inviteCode}</div>
           <p>{`${window.location.origin}${info.inviteUrl}`}</p>
           <p>{info.rule}</p>
+          <div className="rule-note">
+            <strong>累計招待報酬：{formatJpy(totalPostedReward)}</strong>
+            <p>招待人数：{info.invited.length} 人。下位顧客のAI裁定純利益が確定すると、5%がJPY残高へ自動反映されます。</p>
+          </div>
           <DataTable
-            columns={['報酬ID', '金額', '状態', '時刻']}
-            rows={info.rewards.map((reward) => [reward.id, formatJpy(reward.amountJpy), reward.status, formatTime(reward.createdAt)])}
+            columns={['報酬ID', '下位顧客', '対象利益', '率', '報酬', '状態', '業務日', '時刻']}
+            rows={info.rewards.map((reward) => [
+              reward.id,
+              invitedById.get(reward.inviteeCustomerId)?.email ?? reward.inviteeCustomerId,
+              reward.baseProfitJpy ? formatJpy(reward.baseProfitJpy) : '-',
+              reward.rewardRatePercent ? `${reward.rewardRatePercent}%` : '-',
+              formatJpy(reward.amountJpy),
+              reward.status,
+              reward.businessDateTokyo ?? '-',
+              formatTime(reward.createdAt),
+            ])}
           />
         </>
       ) : (
@@ -3242,10 +3298,13 @@ function AdminCustomers(props: {
               <label>
                 VIP等级
                 <select value={draft.vipLevel} onChange={(event) => setDraft((item) => ({ ...item, vipLevel: event.target.value as VipLevel }))}>
-                  <option value="VIP0">VIP0</option>
-                  <option value="VIP1">VIP1</option>
-                  <option value="VIP2">VIP2</option>
-                  <option value="VIP3">VIP3</option>
+                  {[...props.state.vipRules]
+                    .sort((first, second) => vipLevelOrder.indexOf(first.level) - vipLevelOrder.indexOf(second.level))
+                    .map((rule) => (
+                      <option value={rule.level} key={rule.level}>
+                        {rule.level}
+                      </option>
+                    ))}
                 </select>
               </label>
               <label>
@@ -3334,7 +3393,7 @@ function AdminKyc(props: {
   async function action(customerId: string, type: 'approve' | 'reject') {
     const result = await props.run(
       () => props.call<AdminState>(`/admin/kyc/${customerId}/${type}`, { method: 'POST' }, props.token),
-      type === 'approve' ? 'KYC 已通过，客户自动激活 VIP0。' : 'KYC 已驳回。',
+      type === 'approve' ? 'KYC 已通过。VIP 等级由客户在余额达标后手动升级。' : 'KYC 已驳回。',
     );
     if (result) await props.refresh();
   }
@@ -3978,12 +4037,14 @@ function AdminRules(props: {
           <BadgeCheck size={22} />
         </div>
         <div className="admin-list">
-          {props.state.vipRules.map((rule) => (
+          {[...props.state.vipRules]
+            .sort((first, second) => vipLevelOrder.indexOf(first.level) - vipLevelOrder.indexOf(second.level))
+            .map((rule) => (
             <article className="admin-row" key={rule.level}>
               <div>
                 <strong>{rule.level}</strong>
                 <p>{formatJpy(rule.minBalanceJpy)} / {rule.dailyLimit} 次 / 日 / AI {rule.aiPower}</p>
-                <small>VIP 控制东京自然日内的套利机会次数；利润由行情价差、手续费、滑点和风险缓冲计算。</small>
+                <small>VIP 控制东京自然日内的套利机会次数；客户达到升级条件余额后可手动升级，升级时不扣除 JPY。</small>
               </div>
               <div className="vip-limit-editor">
                 <label>
@@ -3997,7 +4058,7 @@ function AdminRules(props: {
                   />
                 </label>
                 <label>
-                  升级费用JPY
+                  升级条件余额JPY
                   <input
                     min="0"
                     type="number"

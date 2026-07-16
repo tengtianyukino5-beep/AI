@@ -4,7 +4,7 @@ import { interval, map, Observable, startWith } from 'rxjs';
 import { AdminPermission, AppService } from './app.service';
 
 type Asset = 'JPY' | 'USDT' | 'BTC' | 'ETH';
-type VipLevel = 'VIP0' | 'VIP1' | 'VIP2' | 'VIP3';
+type VipLevel = 'VIP0' | 'VIP1' | 'VIP2' | 'VIP3' | 'VIP4' | 'VIP5' | 'VIP6' | 'VIP7';
 type CustomerStatus = 'active' | 'frozen' | 'disabled' | 'finance_review_required';
 
 interface ApiResponse<T> {

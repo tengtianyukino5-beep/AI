@@ -8,7 +8,7 @@ type Asset = 'JPY' | 'USDT' | 'BTC' | 'ETH';
 type CryptoAsset = Exclude<Asset, 'JPY'>;
 type MarketAsset = CryptoAsset | 'XRP' | 'SOL' | 'DOT' | 'DOGE' | 'LTC' | 'MONA' | 'BCC' | 'XLM';
 type KycStatus = 'not_submitted' | 'pending' | 'approved' | 'rejected' | 'need_more_info';
-type VipLevel = 'VIP0' | 'VIP1' | 'VIP2' | 'VIP3';
+type VipLevel = 'VIP0' | 'VIP1' | 'VIP2' | 'VIP3' | 'VIP4' | 'VIP5' | 'VIP6' | 'VIP7';
 type CustomerStatus = 'active' | 'frozen' | 'disabled' | 'finance_review_required';
 export type AdminPermission =
   | 'admin.view'
@@ -367,6 +367,11 @@ interface InviteReward {
   inviterCustomerId: string;
   inviteeCustomerId: string;
   amountJpy: string;
+  source?: 'registration_bonus' | 'daily_profit_commission';
+  baseProfitJpy?: string;
+  rewardRatePercent?: number;
+  businessDateTokyo?: string;
+  sourceOrderId?: string;
   status: 'frozen' | 'posted' | 'reversed';
   createdAt: string;
 }
@@ -559,6 +564,8 @@ const arbitrageRiskBufferRate = 0.0005;
 const defaultSuccessRatePercent = 90;
 const opportunityThresholdSeconds = 0.01;
 const minimumAiBalanceJpy = 10000;
+const vipLevels: VipLevel[] = ['VIP0', 'VIP1', 'VIP2', 'VIP3', 'VIP4', 'VIP5', 'VIP6', 'VIP7'];
+const inviteProfitRewardRatePercent = 5;
 const allAdminPermissions: AdminPermission[] = [
   'admin.view',
   'customer.edit',
@@ -712,7 +719,56 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       highProfitProbability: 80,
       upgradeBalanceJpy: 500000,
     },
+    {
+      level: 'VIP4',
+      dailyLimit: 200,
+      aiPower: '20x',
+      intervalSeconds: 2,
+      minBalanceJpy: 1000000,
+      profitFloorJpy: 280000,
+      profitCapJpy: 2200000,
+      highProfitThresholdJpy: 1200000,
+      highProfitProbability: 80,
+      upgradeBalanceJpy: 1000000,
+    },
+    {
+      level: 'VIP5',
+      dailyLimit: 500,
+      aiPower: '50x',
+      intervalSeconds: 1,
+      minBalanceJpy: 2500000,
+      profitFloorJpy: 600000,
+      profitCapJpy: 5200000,
+      highProfitThresholdJpy: 2600000,
+      highProfitProbability: 80,
+      upgradeBalanceJpy: 2500000,
+    },
+    {
+      level: 'VIP6',
+      dailyLimit: 1000,
+      aiPower: '100x',
+      intervalSeconds: 1,
+      minBalanceJpy: 5000000,
+      profitFloorJpy: 1200000,
+      profitCapJpy: 11000000,
+      highProfitThresholdJpy: 5500000,
+      highProfitProbability: 80,
+      upgradeBalanceJpy: 5000000,
+    },
+    {
+      level: 'VIP7',
+      dailyLimit: 2000,
+      aiPower: '200x',
+      intervalSeconds: 1,
+      minBalanceJpy: 10000000,
+      profitFloorJpy: 2500000,
+      profitCapJpy: 25000000,
+      highProfitThresholdJpy: 12000000,
+      highProfitProbability: 80,
+      upgradeBalanceJpy: 10000000,
+    },
   ];
+  private readonly defaultVipRules = this.vipRules.map((rule) => ({ ...rule }));
 
   private readonly exchanges: ExchangeConfig[] = [
     this.exchange('ex-jp-1', 'bitFlyer', 'japan', 'bitflyer', 'https://api.bitflyer.com/v1/ticker?product_code=BTC_JPY'),
@@ -890,6 +946,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     if (state.vipRules?.length) {
       this.replaceArray(this.vipRules, state.vipRules);
     }
+    this.ensureVipRuleCoverage();
     if (state.exchanges?.length) {
       this.replaceArray(this.exchanges, state.exchanges);
     }
@@ -1110,23 +1167,18 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       throw new Error('このメールアドレスは登録済みです。');
     }
 
-    const invitedBy = input.inviteCode
-      ? [...this.customers.values()].find((customer) => customer.inviteCode === input.inviteCode)?.id
+    const normalizedInviteCode = input.inviteCode?.trim().toUpperCase();
+    const inviter = normalizedInviteCode
+      ? [...this.customers.values()].find((customer) => customer.inviteCode === normalizedInviteCode)
       : undefined;
+    if (normalizedInviteCode && !inviter) {
+      throw new Error('\u62db\u5f85\u30b3\u30fc\u30c9\u304c\u6b63\u3057\u304f\u3042\u308a\u307e\u305b\u3093\u3002');
+    }
+    const invitedBy = inviter?.id;
     const customer = this.createCustomer(email, input.password, 'not_submitted', 'VIP0', 0, {
       invitedBy,
       campaignRewardPosted: false,
     });
-    if (invitedBy) {
-      this.inviteRewards.push({
-        id: this.id('reward'),
-        inviterCustomerId: invitedBy,
-        inviteeCustomerId: customer.id,
-        amountJpy: '3000',
-        status: 'frozen',
-        createdAt: this.now(),
-      });
-    }
     this.audit('customer.register', customer.email, 'customer', customer.id, '客户邮箱注册');
     return this.customerSession(customer);
   }
@@ -1531,23 +1583,26 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
   async upgradeVip(customer: CustomerRecord) {
     if (customer.kycStatus !== 'approved') {
-      throw new Error('VIPアップグレードには本人確認が必要です。');
+      throw new Error('VIP\u30a2\u30c3\u30d7\u30b0\u30ec\u30fc\u30c9\u306b\u306f\u672c\u4eba\u78ba\u8a8d\u304c\u5fc5\u8981\u3067\u3059\u3002');
     }
     const nextLevel = this.nextVipLevel(customer.vipLevel);
     if (!nextLevel) {
-      throw new Error('すでに最高VIPレベルです。');
+      throw new Error('\u3059\u3067\u306b\u6700\u9ad8VIP\u30ec\u30d9\u30eb\u3067\u3059\u3002');
     }
     const targetRule = this.vipRule(nextLevel);
-    const costJpy = Math.max(0, Math.floor(targetRule.upgradeBalanceJpy));
+    const requiredJpy = Math.max(0, Math.floor(targetRule.upgradeBalanceJpy));
     const jpy = Number(this.balance(customer.id, 'JPY').available);
-    if (jpy < costJpy) {
-      throw new Error(`VIPアップグレードには ${this.formatJpyText(costJpy)} のJPY残高が必要です。`);
-    }
-    if (costJpy > 0) {
-      this.adjustBalance(customer.id, 'JPY', -costJpy, 'manual_debit', 'VIPアップグレード', `${nextLevel} アップグレード費用の控除`);
+    if (jpy < requiredJpy) {
+      throw new Error(`VIP\u30a2\u30c3\u30d7\u30b0\u30ec\u30fc\u30c9\u306b\u306f ${this.formatJpyText(requiredJpy)} \u4ee5\u4e0a\u306eJPY\u6b8b\u9ad8\u304c\u5fc5\u8981\u3067\u3059\u3002`);
     }
     customer.vipLevel = nextLevel;
-    this.audit('vip.upgrade', customer.email, 'customer', customer.id, `${nextLevel} セルフアップグレード、手数料 ¥${costJpy} を控除`);
+    this.audit(
+      'vip.upgrade',
+      customer.email,
+      'customer',
+      customer.id,
+      `${nextLevel} \u30bb\u30eb\u30d5\u30a2\u30c3\u30d7\u30b0\u30ec\u30fc\u30c9\u3002\u6761\u4ef6\u6b8b\u9ad8 ${this.formatJpyText(requiredJpy)} \u3092\u78ba\u8a8d\u3057\u3001JPY\u6b8b\u9ad8\u306e\u63a7\u9664\u306a\u3057\u3067\u53cd\u6620`,
+    );
     return this.dashboard(customer);
   }
 
@@ -1602,7 +1657,8 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       inviteUrl: `/register?invite=${customer.inviteCode}`,
       invited: invited.map((item) => this.publicCustomer(item)),
       rewards,
-      rule: '招待者と招待されたお客様の本人確認が完了した後、管理部門の承認により招待報酬が反映されます。',
+      rule:
+        '\u62db\u5f85\u3057\u305f\u304a\u5ba2\u69d8\u306eAI\u88c1\u5b9a\u7d14\u5229\u76ca\u306b\u5bfe\u3057\u3066\u3001\u6bce\u65e55%\u306e\u62db\u5f85\u5831\u916c\u304cJPY\u6b8b\u9ad8\u3078\u81ea\u52d5\u53cd\u6620\u3055\u308c\u307e\u3059\u3002',
     };
   }
 
@@ -1654,8 +1710,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const customer = this.mustCustomer(customerId);
     customer.kycStatus = 'approved';
     customer.vipLevel = customer.vipLevel || 'VIP0';
-    this.postEligibleInviteRewards(customer);
-    this.audit('kyc.approve', operator, 'customer', customer.id, 'KYC 通过，自动激活 VIP0');
+    this.audit('kyc.approve', operator, 'customer', customer.id, 'KYC通過。VIPは顧客の手動アップグレードで反映');
     return this.adminState();
   }
 
@@ -1810,7 +1865,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     if (input.status && ['active', 'frozen', 'disabled', 'finance_review_required'].includes(input.status)) {
       customer.status = input.status;
     }
-    if (input.vipLevel && ['VIP0', 'VIP1', 'VIP2', 'VIP3'].includes(input.vipLevel)) {
+    if (input.vipLevel && vipLevels.includes(input.vipLevel)) {
       customer.vipLevel = input.vipLevel;
     }
     if (input.creditScore !== undefined) {
@@ -2625,6 +2680,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
           'AI裁定利益',
           mode === 'auto' ? '自動AI裁定利益' : '手動AI裁定利益',
         );
+        this.postInviteProfitReward(customer, order);
       }
       this.audit(
         execution.status === 'settled' ? (mode === 'auto' ? 'simulation.auto_settle' : 'simulation.settle') : 'simulation.execution_failed',
@@ -3422,14 +3478,73 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private postInviteProfitReward(invitee: CustomerRecord, order: SimulationOrder) {
+    if (order.status !== 'settled' || !invitee.invitedBy) {
+      return;
+    }
+    const inviter = this.customers.get(invitee.invitedBy);
+    if (!inviter || inviter.status !== 'active') {
+      return;
+    }
+    const baseProfit = Math.max(0, Math.floor(Number(order.profitJpy)));
+    if (!Number.isFinite(baseProfit) || baseProfit <= 0) {
+      return;
+    }
+    const rewardAmount = Math.floor((baseProfit * inviteProfitRewardRatePercent) / 100);
+    if (rewardAmount <= 0) {
+      return;
+    }
+    const reward: InviteReward = {
+      id: this.id('reward'),
+      inviterCustomerId: inviter.id,
+      inviteeCustomerId: invitee.id,
+      amountJpy: String(rewardAmount),
+      source: 'daily_profit_commission',
+      baseProfitJpy: String(baseProfit),
+      rewardRatePercent: inviteProfitRewardRatePercent,
+      businessDateTokyo: order.settledAt ? this.tokyoDate(order.settledAt) : this.businessDateTokyo(),
+      sourceOrderId: order.id,
+      status: 'posted',
+      createdAt: this.now(),
+    };
+    this.inviteRewards.unshift(reward);
+    this.adjustBalance(
+      inviter.id,
+      'JPY',
+      rewardAmount,
+      'invite_reward',
+      '\u62db\u5f85\u5831\u916c',
+      `${invitee.email} \u306eAI\u88c1\u5b9a\u7d14\u5229\u76ca ${this.formatJpyText(baseProfit)} \u306b\u5bfe\u3059\u308b${inviteProfitRewardRatePercent}%\u5831\u916c`,
+    );
+    this.audit(
+      'invite.reward.post',
+      'system',
+      'invite_reward',
+      reward.id,
+      `${inviter.email} <= ${invitee.email} ${this.formatJpyText(baseProfit)} x ${inviteProfitRewardRatePercent}% = ${this.formatJpyText(rewardAmount)}`,
+    );
+  }
+
+  private ensureVipRuleCoverage() {
+    const byLevel = new Map(this.vipRules.map((rule) => [rule.level, rule]));
+    vipLevels.forEach((level) => {
+      if (!byLevel.has(level)) {
+        const fallback = this.defaultVipRules.find((rule) => rule.level === level);
+        if (fallback) {
+          this.vipRules.push({ ...fallback });
+        }
+      }
+    });
+    this.vipRules.sort((first, second) => vipLevels.indexOf(first.level) - vipLevels.indexOf(second.level));
+  }
+
   private vipRule(level: VipLevel) {
     return this.vipRules.find((rule) => rule.level === level) ?? this.vipRules[0];
   }
 
   private nextVipLevel(level: VipLevel): VipLevel | null {
-    const levels: VipLevel[] = ['VIP0', 'VIP1', 'VIP2', 'VIP3'];
-    const index = levels.indexOf(level);
-    return index >= 0 && index < levels.length - 1 ? levels[index + 1] : null;
+    const index = vipLevels.indexOf(level);
+    return index >= 0 && index < vipLevels.length - 1 ? vipLevels[index + 1] : null;
   }
 
   private compactDataUrl(dataUrl?: string) {

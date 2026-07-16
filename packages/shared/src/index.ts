@@ -2,7 +2,7 @@ export type Asset = 'JPY' | 'USDT' | 'BTC' | 'ETH';
 export type CryptoAsset = Exclude<Asset, 'JPY'>;
 export type MarketAsset = CryptoAsset | 'XRP' | 'SOL' | 'DOT' | 'DOGE' | 'LTC' | 'MONA' | 'BCC' | 'XLM';
 export type KycStatus = 'not_submitted' | 'pending' | 'approved' | 'rejected' | 'need_more_info';
-export type VipLevel = 'VIP0' | 'VIP1' | 'VIP2' | 'VIP3';
+export type VipLevel = 'VIP0' | 'VIP1' | 'VIP2' | 'VIP3' | 'VIP4' | 'VIP5' | 'VIP6' | 'VIP7';
 export type CustomerStatus = 'active' | 'frozen' | 'disabled' | 'finance_review_required';
 
 export type LedgerType =
