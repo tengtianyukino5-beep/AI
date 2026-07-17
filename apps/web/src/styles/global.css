@@ -672,6 +672,28 @@ button:disabled {
   color: rgba(226, 238, 248, 0.86);
 }
 
+.customer-shell .about-flow-card small {
+  color: rgba(216, 230, 243, 0.58);
+}
+
+.customer-shell .technical-article-detail {
+  border-color: rgba(80, 129, 181, 0.24);
+  background:
+    linear-gradient(180deg, rgba(12, 32, 52, 0.96), rgba(8, 22, 37, 0.92)),
+    rgba(8, 22, 37, 0.96);
+  color: #e9f4ff;
+}
+
+.customer-shell .technical-article-detail h3 {
+  color: #f4f9ff;
+}
+
+.customer-shell .technical-article-detail > span,
+.customer-shell .technical-article-detail > p,
+.customer-shell .technical-article-detail div p {
+  color: rgba(226, 238, 248, 0.82);
+}
+
 .customer-shell .support-message.support {
   background:
     linear-gradient(180deg, rgba(13, 46, 58, 0.96), rgba(8, 22, 37, 0.94)),
@@ -2256,7 +2278,8 @@ select:focus {
 .support-account-box span,
 .support-account-box small,
 .support-guide-list span,
-.about-flow-card span {
+.about-flow-card span,
+.about-flow-card small {
   color: #60736a;
   font-size: 12px;
   font-weight: 850;
@@ -2291,6 +2314,53 @@ select:focus {
 
 .about-detail-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.article-card-button {
+  width: 100%;
+  text-align: left;
+}
+
+.article-card-button:hover {
+  border-color: rgba(15, 118, 110, 0.35);
+  transform: translateY(-1px);
+}
+
+.technical-article-detail {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(16, 63, 69, 0.12);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 250, 247, 0.92)),
+    #ffffff;
+  padding: 14px;
+}
+
+.technical-article-detail > span,
+.technical-article-detail > p {
+  color: #60736a;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.55;
+}
+
+.technical-article-detail h3 {
+  margin: 0;
+  color: #142b2b;
+  font-size: 22px;
+}
+
+.technical-article-detail div {
+  display: grid;
+  gap: 10px;
+}
+
+.technical-article-detail div p {
+  margin: 0;
+  color: #293f3d;
+  font-weight: 750;
+  line-height: 1.75;
 }
 
 .support-chat-panel {
@@ -2929,6 +2999,42 @@ select:focus {
 
 .vip-save-status.error {
   color: #ffb4a8;
+}
+
+.article-admin-row {
+  align-items: stretch;
+}
+
+.article-admin-row small {
+  display: block;
+  max-width: 620px;
+  word-break: break-word;
+}
+
+.article-editor-panel {
+  align-content: start;
+}
+
+.article-wide-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  color: rgba(219, 233, 228, 0.72);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.article-wide-field textarea {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  border: 1px solid rgba(143, 215, 199, 0.24);
+  border-radius: 8px;
+  background: rgba(6, 22, 30, 0.84);
+  color: #edf8f5;
+  padding: 10px;
+  font: inherit;
+  line-height: 1.55;
 }
 
 .rule-note {

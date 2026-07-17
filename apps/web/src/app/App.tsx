@@ -45,6 +45,7 @@ import type {
   SimulationOrder,
   SupportConfig,
   SupportConversation,
+  TechnicalArticle,
   VipLevel,
   VipRule,
   WithdrawalOrder,
@@ -91,6 +92,7 @@ type AdminState = {
   vipRules: VipRule[];
   exchanges: ExchangeConfig[];
   supportConfig: SupportConfig;
+  technicalArticles: TechnicalArticle[];
   inviteRewards: Array<{
     id: string;
     inviterCustomerId: string;
@@ -138,7 +140,7 @@ type CustomerPage =
   | 'support'
   | 'about'
   | 'my';
-type AdminPage = 'overview' | 'customers' | 'kyc' | 'deposits' | 'withdrawals' | 'balances' | 'rules' | 'audit';
+type AdminPage = 'overview' | 'customers' | 'kyc' | 'deposits' | 'withdrawals' | 'balances' | 'rules' | 'articles' | 'audit';
 type VipDraftKey = 'dailyLimit' | 'minBalanceJpy' | 'upgradeBalanceJpy' | 'highProfitProbability' | 'aiPower';
 type VipSaveStatus = 'saving' | 'saved' | 'error';
 type AdminRealtimeState = 'offline' | 'connecting' | 'live' | 'fallback';
@@ -149,6 +151,15 @@ type CustomerDepositAddressDraft = {
   memo: string;
   minConfirmations: string;
   enabled: boolean;
+};
+type TechnicalArticleDraft = {
+  titleJa: string;
+  summaryJa: string;
+  categoryJa: string;
+  bodyJa: string;
+  sortOrder: string;
+  status: TechnicalArticle['status'];
+  publishedAt: string;
 };
 type HistoryFilter = {
   query: string;
@@ -180,6 +191,32 @@ const customerDepositAddressTemplates: Array<Pick<CustomerDepositAddressDraft, '
   { asset: 'USDT', network: 'TRC-20', minConfirmations: '20' },
 ];
 
+function articleDraft(article?: TechnicalArticle): TechnicalArticleDraft {
+  return {
+    titleJa: article?.titleJa ?? '',
+    summaryJa: article?.summaryJa ?? '',
+    categoryJa: article?.categoryJa ?? 'AI裁定',
+    bodyJa: article?.bodyJa ?? '',
+    sortOrder: String(article?.sortOrder ?? 1),
+    status: article?.status ?? 'draft',
+    publishedAt: datetimeLocalValue(article?.publishedAt ?? new Date().toISOString()),
+  };
+}
+
+function datetimeLocalValue(value?: string) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function datetimeLocalToIso(value: string) {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
 const customerNav: Array<{ key: CustomerPage; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'dashboard', label: 'ホーム', icon: LayoutDashboard },
   { key: 'ai', label: 'AI裁定', icon: Bot },
@@ -195,6 +232,7 @@ const adminNav: Array<{ key: AdminPage; label: string; icon: typeof LayoutDashbo
   { key: 'withdrawals', label: '出金', icon: Banknote },
   { key: 'balances', label: '调账', icon: Banknote },
   { key: 'rules', label: '规则', icon: SlidersHorizontal },
+  { key: 'articles', label: '技术文章', icon: Info },
   { key: 'audit', label: '审计', icon: History },
 ];
 export function App() {
@@ -492,7 +530,7 @@ function CustomerApp(props: {
         {props.page === 'ledger' ? <LedgerPage dashboard={props.dashboard} /> : null}
         {props.page === 'activity' ? <ActivitySearchPage dashboard={props.dashboard} /> : null}
         {props.page === 'support' ? <SupportPage dashboard={props.dashboard} token={props.token} call={props.call} run={props.run} /> : null}
-        {props.page === 'about' ? <PlatformAboutPage /> : null}
+        {props.page === 'about' ? <PlatformAboutPage dashboard={props.dashboard} /> : null}
         {props.page === 'my' ? <MyPage dashboard={props.dashboard} navigate={navigate} onLogout={props.onLogout} /> : null}
       </div>
       <CustomerBottomNav page={props.page} setPage={navigate} />
@@ -2666,7 +2704,12 @@ function SupportPage(props: {
   );
 }
 
-function PlatformAboutPage() {
+function PlatformAboutPage({ dashboard }: { dashboard: DashboardData }) {
+  const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
+  const technicalArticles = [...(dashboard.technicalArticles ?? [])].sort(
+    (first, second) => first.sortOrder - second.sortOrder || new Date(second.publishedAt ?? second.updatedAt).getTime() - new Date(first.publishedAt ?? first.updatedAt).getTime(),
+  );
+  const selectedArticle = technicalArticles.find((article) => article.id === selectedArticleId) ?? null;
   const flowItems = [
     { title: '1. アカウント登録', text: 'メール認証後、マイページから本人確認を提出します。登録後の利用状況はすべてアカウント単位で管理されます。' },
     { title: '2. 本人確認', text: '氏名と運転免許証表面写真を照合し、承認後に入出金、資産交換、AI裁定が利用できます。' },
@@ -2674,32 +2717,6 @@ function PlatformAboutPage() {
     { title: '4. 資産交換', text: '保有暗号資産を公開価格データとUSD/JPYレートでJPY評価し、確認後にJPY残高へ反映します。' },
     { title: '5. AI裁定', text: '複数取引所の価格差から、手数料、スリッページ、リスクバッファを控除した純利益を判定します。' },
     { title: '6. 出金と履歴', text: '出金申請、審査結果、注文履歴、資金履歴、監査情報を業務番号で追跡できます。' },
-  ];
-  const operationItems = [
-    {
-      title: '利益が発生する仕組み',
-      text: '取引所Aの買付参考価格と取引所Bの売却参考価格に差がある場合、その差額から片道手数料、滑り、リスクバッファを差し引き、純利益が残る機会のみをAI裁定候補として表示します。',
-    },
-    {
-      title: '価格データと更新',
-      text: '主要取引所の公開価格APIを優先し、バックアップ価格と手動レートを段階的に参照します。価格ソース、API更新時刻、対象ペアは履歴詳細で確認できます。',
-    },
-    {
-      title: '残高と資金台帳',
-      text: '入金承認、資産交換、AI裁定利益、出金承認は資金台帳へ記録され、JPY、BTC、ETH、USDTの残高に反映されます。金額は業務番号ごとに追跡できます。',
-    },
-    {
-      title: 'VIPと利用回数',
-      text: 'VIPランクにより東京自然日の利用可能回数が決まります。管理画面で回数、成功率、AI算力、アップグレード条件を設定し、お客様画面へ反映します。',
-    },
-    {
-      title: '審査とリスク管理',
-      text: '本人確認、入金証明、出金先、残高不足、失敗裁定、管理者メモを確認し、不正確な申請やリスクのある処理は承認前に停止できます。',
-    },
-    {
-      title: '東京時間での運営',
-      text: '利用回数、日次収益、履歴集計はAsia/Tokyoの自然日 00:00:00 - 23:59:59 を基準として集計されます。',
-    },
   ];
   return (
     <section className="about-page">
@@ -2737,19 +2754,38 @@ function PlatformAboutPage() {
       <section className="panel">
         <div className="panel-head">
           <div>
-            <p className="eyebrow">Operation Model</p>
-            <h2>運営モデル</h2>
+            <p className="eyebrow">Technical Articles</p>
+            <h2>技術記事</h2>
           </div>
           <LineChart size={22} />
         </div>
-        <div className="about-flow-grid about-detail-grid">
-          {operationItems.map((item) => (
-            <div className="about-flow-card" key={item.title}>
-              <strong>{item.title}</strong>
-              <span>{item.text}</span>
+        {selectedArticle ? (
+          <article className="technical-article-detail">
+            <button className="ghost-button" type="button" onClick={() => setSelectedArticleId(null)}>
+              <ChevronLeft size={16} />
+              戻る
+            </button>
+            <span>{selectedArticle.categoryJa} / {selectedArticle.publishedAt ? formatFullTime(selectedArticle.publishedAt) : '公開日時未設定'}</span>
+            <h3>{selectedArticle.titleJa}</h3>
+            <p>{selectedArticle.summaryJa}</p>
+            <div>
+              {selectedArticle.bodyJa.split('\n').filter(Boolean).map((paragraph, index) => (
+                <p key={`${selectedArticle.id}-${index}`}>{paragraph}</p>
+              ))}
             </div>
-          ))}
-        </div>
+          </article>
+        ) : (
+          <div className="about-flow-grid about-detail-grid">
+            {technicalArticles.map((article) => (
+              <button className="about-flow-card article-card-button" key={article.id} type="button" onClick={() => setSelectedArticleId(article.id)}>
+                <strong>{article.titleJa}</strong>
+                <span>{article.summaryJa}</span>
+                <small>{article.categoryJa} / {article.publishedAt ? formatFullTime(article.publishedAt) : '公開日時未設定'}</small>
+              </button>
+            ))}
+            {technicalArticles.length === 0 ? <EmptyState text="公開中の技術記事はまだありません。" /> : null}
+          </div>
+        )}
       </section>
     </section>
   );
@@ -3118,6 +3154,7 @@ function AdminApp(props: {
         {props.page === 'withdrawals' ? <AdminWithdrawals state={props.adminState} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'balances' ? <AdminBalanceAdjust state={props.adminState} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'rules' ? <AdminRules state={props.adminState} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
+        {props.page === 'articles' ? <AdminTechnicalArticles state={props.adminState} token={props.token} call={props.call} run={props.run} refresh={props.refresh} /> : null}
         {props.page === 'audit' ? <AdminAudit state={props.adminState} /> : null}
       </div>
     </section>
@@ -4394,6 +4431,181 @@ function AdminRules(props: {
   );
 }
 
+function AdminTechnicalArticles(props: {
+  state: AdminState;
+  token: string;
+  call: <T>(path: string, options?: RequestInit, token?: string) => Promise<T>;
+  run: <T>(task: () => Promise<T>, success?: string) => Promise<T | null>;
+  refresh: (token?: string) => Promise<AdminState>;
+}) {
+  const articles = [...(props.state.technicalArticles ?? [])].sort(
+    (first, second) => first.sortOrder - second.sortOrder || new Date(second.publishedAt ?? second.updatedAt).getTime() - new Date(first.publishedAt ?? first.updatedAt).getTime(),
+  );
+  const [selectedId, setSelectedId] = useState(articles[0]?.id ?? 'new');
+  const selected = articles.find((article) => article.id === selectedId);
+  const [draft, setDraft] = useState<TechnicalArticleDraft>(() => articleDraft(selected));
+
+  useEffect(() => {
+    setDraft(articleDraft(selected));
+  }, [selected?.id]);
+
+  async function saveArticle(nextStatus?: TechnicalArticle['status']) {
+    const payload = {
+      ...draft,
+      status: nextStatus ?? draft.status,
+      publishedAt: datetimeLocalToIso(draft.publishedAt),
+    };
+    const result = await props.run(
+      () =>
+        selected
+          ? props.call<AdminState>(
+              `/admin/technical-articles/${selected.id}`,
+              { method: 'PATCH', body: JSON.stringify(payload) },
+              props.token,
+            )
+          : props.call<AdminState>('/admin/technical-articles', { method: 'POST', body: JSON.stringify(payload) }, props.token),
+      nextStatus === 'published'
+        ? '技術記事を公開しました。'
+        : nextStatus === 'hidden'
+          ? '技術記事を非公開にしました。'
+          : '技術記事を保存しました。',
+    );
+    if (result) {
+      await props.refresh();
+      const nextArticles = result.technicalArticles ?? [];
+      const nextSelected = selected ? nextArticles.find((article) => article.id === selected.id) : nextArticles[0];
+      setSelectedId(nextSelected?.id ?? 'new');
+    }
+  }
+
+  function newArticle() {
+    setSelectedId('new');
+    setDraft(articleDraft());
+  }
+
+  return (
+    <section className="two-column article-admin-workspace">
+      <div className="panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Technical Articles</p>
+            <h2>技术文章</h2>
+          </div>
+          <button className="secondary-button" type="button" onClick={newArticle}>
+            新增文章
+          </button>
+        </div>
+        <div className="admin-list">
+          {articles.map((article) => (
+            <article className="admin-row article-admin-row" key={article.id}>
+              <div>
+                <strong>{article.titleJa}</strong>
+                <p>{article.categoryJa} / {technicalArticleStatusJa(article.status)} / 表示順 {article.sortOrder}</p>
+                <small>{article.summaryJa}</small>
+              </div>
+              <div className="row-actions">
+                <button className="link-button" type="button" onClick={() => setSelectedId(article.id)}>
+                  编辑
+                </button>
+                {article.status === 'published' ? (
+                  <button className="ghost-button" type="button" onClick={() => {
+                    setSelectedId(article.id);
+                    setDraft(articleDraft(article));
+                    void saveArticleFrom(article, 'hidden');
+                  }}>
+                    下架
+                  </button>
+                ) : (
+                  <button className="secondary-button" type="button" onClick={() => {
+                    setSelectedId(article.id);
+                    setDraft(articleDraft(article));
+                    void saveArticleFrom(article, 'published');
+                  }}>
+                    发布
+                  </button>
+                )}
+              </div>
+            </article>
+          ))}
+          {articles.length === 0 ? <EmptyState text="技术文章还没有创建。" /> : null}
+        </div>
+      </div>
+      <div className="panel article-editor-panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">{selected ? 'Edit Article' : 'New Article'}</p>
+            <h2>{selected ? '编辑技术文章' : '新增技术文章'}</h2>
+          </div>
+          <Info size={22} />
+        </div>
+        <div className="form-grid">
+          <label>
+            标题
+            <input value={draft.titleJa} onChange={(event) => setDraft((item) => ({ ...item, titleJa: event.target.value }))} />
+          </label>
+          <label>
+            分类
+            <input value={draft.categoryJa} onChange={(event) => setDraft((item) => ({ ...item, categoryJa: event.target.value }))} />
+          </label>
+          <label>
+            显示顺序
+            <input min="0" type="number" value={draft.sortOrder} onChange={(event) => setDraft((item) => ({ ...item, sortOrder: event.target.value }))} />
+          </label>
+          <label>
+            状态
+            <select value={draft.status} onChange={(event) => setDraft((item) => ({ ...item, status: event.target.value as TechnicalArticle['status'] }))}>
+              <option value="draft">下書き</option>
+              <option value="published">公開中</option>
+              <option value="hidden">非公開</option>
+            </select>
+          </label>
+          <label>
+            发布时间
+            <input type="datetime-local" value={draft.publishedAt} onChange={(event) => setDraft((item) => ({ ...item, publishedAt: event.target.value }))} />
+          </label>
+        </div>
+        <label className="article-wide-field">
+          摘要
+          <textarea rows={3} value={draft.summaryJa} onChange={(event) => setDraft((item) => ({ ...item, summaryJa: event.target.value }))} />
+        </label>
+        <label className="article-wide-field">
+          正文
+          <textarea rows={12} value={draft.bodyJa} onChange={(event) => setDraft((item) => ({ ...item, bodyJa: event.target.value }))} />
+        </label>
+        <div className="row-actions">
+          <button className="primary-button" type="button" onClick={() => void saveArticle()}>
+            保存文章
+          </button>
+          <button className="secondary-button" type="button" onClick={() => void saveArticle('published')}>
+            发布
+          </button>
+          <button className="ghost-button" type="button" onClick={() => void saveArticle('hidden')}>
+            下架
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+
+  async function saveArticleFrom(article: TechnicalArticle, status: TechnicalArticle['status']) {
+    const payload = {
+      ...articleDraft(article),
+      status,
+      publishedAt: datetimeLocalToIso(articleDraft(article).publishedAt),
+    };
+    const result = await props.run(
+      () =>
+        props.call<AdminState>(
+          `/admin/technical-articles/${article.id}`,
+          { method: 'PATCH', body: JSON.stringify(payload) },
+          props.token,
+        ),
+      status === 'published' ? '技術記事を公開しました。' : '技術記事を非公開にしました。',
+    );
+    if (result) await props.refresh();
+  }
+}
+
 function AdminAudit({ state }: { state: AdminState }) {
   return (
     <section className="panel">
@@ -5130,6 +5342,12 @@ function autoAiLockReasonJa(dashboard: DashboardData) {
   if (dashboard.customer.kycStatus !== 'approved') {
     return '本人確認が完了していないため、自動AI裁定を開始できません。';
   }
+  if (dashboard.todayLimit <= 0) {
+    return '本日のAI裁定利用回数が0回に設定されているため、自動AI裁定を開始できません。';
+  }
+  if (dashboard.todayUsed >= dashboard.todayLimit) {
+    return '本日の利用回数が完了したため、自動AI裁定は停止中です。翌日はお客様ご自身で再度ONにしてください。';
+  }
   const jpyBalance = Number(balanceOf(dashboard.balances, 'JPY').available);
   if (!Number.isFinite(jpyBalance) || jpyBalance < minimumAiBalanceJpy) {
     return `JPY利用可能残高が不足しています。自動AI裁定を開始するには最低 ${formatJpy(minimumAiBalanceJpy)} が必要です。`;
@@ -5145,7 +5363,7 @@ function opportunityEmptyStateText(dashboard: DashboardData) {
     return '本日の利用上限が0回に設定されています。VIP設定を確認してください。';
   }
   if (dashboard.todayUsed >= dashboard.todayLimit) {
-    return '本日の利用回数は完了しました。東京時間の翌日から再度利用できます。';
+    return '本日の利用回数は完了しました。自動AI裁定は停止され、翌日はお客様ご自身で再度ONにできます。';
   }
   const jpyBalance = Number(balanceOf(dashboard.balances, 'JPY').available);
   if (!Number.isFinite(jpyBalance) || jpyBalance < minimumAiBalanceJpy) {
@@ -5298,6 +5516,15 @@ function withdrawalStatusTone(status: WithdrawalOrder['status']) {
     rejected: 'danger',
   };
   return tones[status];
+}
+
+function technicalArticleStatusJa(status: TechnicalArticle['status']) {
+  const labels: Record<TechnicalArticle['status'], string> = {
+    draft: '下書き',
+    published: '公開中',
+    hidden: '非公開',
+  };
+  return labels[status] ?? status;
 }
 
 function ledgerStatusJa(status: LedgerEntry['ledgerStatus']) {

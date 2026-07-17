@@ -451,6 +451,7 @@ interface PersistentAppState {
   supportMessages: SupportMessage[];
   supportTickets: [string, string][];
   supportConfig: SupportConfig;
+  technicalArticles?: TechnicalArticle[];
   vipRules: VipRule[];
   exchanges: ExchangeConfig[];
   marketCache: [string, MarketCacheEntry][];
@@ -463,6 +464,25 @@ interface SupportConfig {
   noteJa: string;
   updatedAt: string;
 }
+
+interface TechnicalArticle {
+  id: string;
+  titleJa: string;
+  summaryJa: string;
+  categoryJa: string;
+  bodyJa: string;
+  sortOrder: number;
+  status: 'draft' | 'published' | 'hidden';
+  publishedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type TechnicalArticleInput = Partial<
+  Omit<Pick<TechnicalArticle, 'titleJa' | 'summaryJa' | 'categoryJa' | 'bodyJa' | 'status' | 'publishedAt'>, never> & {
+    sortOrder: number | string;
+  }
+>;
 
 type ExecutionMode = 'manual' | 'auto';
 
@@ -661,6 +681,86 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     noteJa: 'LINE公式アカウントを追加し、登録メールアドレスとお問い合わせ内容をお送りください。',
     updatedAt: new Date().toISOString(),
   };
+  private readonly technicalArticles: TechnicalArticle[] = [
+    {
+      id: 'article_price_spread',
+      titleJa: '価格差が発生する仕組み',
+      summaryJa: '複数取引所間の参考価格差から、手数料やリスクバッファを考慮して裁定機会を判定します。',
+      categoryJa: 'AI裁定',
+      bodyJa:
+        '取引所Aの買付参考価格と取引所Bの売却参考価格に差がある場合、その差額から片道手数料、滑り、リスクバッファを差し引きます。\n\n純利益が残る可能性がある場合のみ、AI裁定候補として表示します。市場状況により、機会が表示されない場合や失敗履歴として記録される場合があります。',
+      sortOrder: 1,
+      status: 'published',
+      publishedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: 'article_market_api',
+      titleJa: '公開取引所APIと価格データ',
+      summaryJa: '主要取引所の公開価格APIを優先し、価格ソースと更新時刻を履歴で確認できます。',
+      categoryJa: '価格データ',
+      bodyJa:
+        '主要取引所の公開価格APIを優先して価格データを取得します。APIが一時的に不安定な場合は、バックアップ価格や手動レートを段階的に参照します。\n\n価格ソース、API更新時刻、対象ペアは履歴詳細で確認できます。',
+      sortOrder: 2,
+      status: 'published',
+      publishedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: 'article_ledger',
+      titleJa: '資産台帳と履歴管理',
+      summaryJa: '入金、交換、AI裁定、出金は業務番号ごとに資金台帳へ記録されます。',
+      categoryJa: '資産管理',
+      bodyJa:
+        '入金承認、資産交換、AI裁定利益、出金承認は資金台帳へ記録されます。JPY、BTC、ETH、USDTの残高は各処理の結果に応じて更新されます。\n\n各履歴は業務番号で追跡でき、申請時の価格、審査状態、管理メモを確認できます。',
+      sortOrder: 3,
+      status: 'published',
+      publishedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: 'article_vip',
+      titleJa: 'VIPランクと利用回数',
+      summaryJa: 'VIPランクにより東京自然日の利用可能回数、AI算力、アップグレード条件を管理します。',
+      categoryJa: 'VIP',
+      bodyJa:
+        'VIPランクにより東京自然日の利用可能回数が決まります。管理画面では回数、成功率、AI算力、アップグレード条件を設定できます。\n\nお客様画面には管理画面で保存された最新設定が反映されます。アップグレード条件を満たした場合、お客様は手動でVIPを更新できます。',
+      sortOrder: 4,
+      status: 'published',
+      publishedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: 'article_risk_review',
+      titleJa: '審査とリスク管理',
+      summaryJa: '本人確認、入金証明、出金先、残高不足、失敗裁定などを承認前に確認します。',
+      categoryJa: 'リスク管理',
+      bodyJa:
+        '本人確認、入金証明、出金先、残高不足、失敗裁定、管理者メモを確認し、不正確な申請やリスクのある処理は承認前に停止できます。\n\n各審査結果は履歴と監査ログへ記録され、後から確認できます。',
+      sortOrder: 5,
+      status: 'published',
+      publishedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: 'article_tokyo_time',
+      titleJa: '東京時間での運用基準',
+      summaryJa: '利用回数、日次収益、履歴集計は東京時間の自然日を基準として管理します。',
+      categoryJa: '運用基準',
+      bodyJa:
+        '利用回数、日次収益、履歴集計はAsia/Tokyoの自然日 00:00:00 - 23:59:59 を基準として集計されます。\n\n東京時間基準に統一することで、日次回数、VIP利用状況、監査情報を一貫して確認できます。',
+      sortOrder: 6,
+      status: 'published',
+      publishedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  ];
   private readonly marketCache = new Map<string, MarketCacheEntry>();
   private usdJpyCache?: FxCacheEntry;
   private readonly executionProvider: ExecutionProvider = new TestExecutionProvider();
@@ -959,6 +1059,9 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     if (state.supportConfig) {
       this.supportConfig = this.normalizeSupportConfig(state.supportConfig);
     }
+    if (Array.isArray(state.technicalArticles)) {
+      this.replaceArray(this.technicalArticles, state.technicalArticles);
+    }
 
     (state.quotes ?? []).forEach((quote) => {
       if (!quote.expiresAt || new Date(quote.expiresAt).getTime() > Date.now()) {
@@ -995,6 +1098,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       supportMessages: [...this.supportMessages],
       supportTickets: [...this.supportTickets.entries()],
       supportConfig: this.publicSupportConfig(),
+      technicalArticles: [...this.technicalArticles],
       vipRules: [...this.vipRules],
       exchanges: [...this.exchanges],
       marketCache: [...this.marketCache.entries()],
@@ -1308,6 +1412,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       disclosureJa,
       tradingRuntime,
       supportConfig: this.publicSupportConfig(),
+      technicalArticles: this.publicTechnicalArticles(),
     };
   }
 
@@ -1337,6 +1442,9 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       if (!Number.isFinite(jpyBalance) || jpyBalance < minimumAiBalanceJpy) {
         throw new Error(`JPY利用可能残高が不足しています。自動AI裁定を開始するには最低 ${this.formatJpyText(minimumAiBalanceJpy)} が必要です。`);
       }
+      if (this.todayAttemptCount(customer) >= this.effectiveDailyLimit(customer)) {
+        throw new Error('本日のAI裁定利用回数はすべて完了しています。東京時間の翌日以降に再度ONにしてください。');
+      }
     }
     customer.autoAiEnabled = enabled;
     if (enabled) {
@@ -1344,7 +1452,17 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       this.ensureDailyOpportunities(customer, marketTickers);
       this.runAutoAiIfNeeded(customer, marketTickers, true);
     }
-    this.audit('simulation.auto_toggle', customer.email, 'customer', customer.id, enabled ? '自動AI裁定を開始' : '自動AI裁定を停止');
+    this.audit(
+      'simulation.auto_toggle',
+      customer.email,
+      'customer',
+      customer.id,
+      enabled
+        ? customer.autoAiEnabled
+          ? '自動AI裁定を開始'
+          : '自動AI裁定を開始後、本日の利用回数完了により停止'
+        : '自動AI裁定を停止',
+    );
     return this.dashboard(customer);
   }
 
@@ -1702,6 +1820,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       inviteRewards: this.inviteRewards,
       auditLogs: this.auditLogs,
       supportConfig: this.publicSupportConfig(),
+      technicalArticles: this.adminTechnicalArticles(),
       persistence: this.persistenceStatus(),
       reconciliation: this.reconciliation(),
     };
@@ -2129,6 +2248,53 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     return this.adminState();
   }
 
+  createTechnicalArticle(input: TechnicalArticleInput, operator: string) {
+    const now = this.now();
+    const article: TechnicalArticle = {
+      id: this.id('art'),
+      titleJa: this.requiredArticleText(input.titleJa, 'タイトル'),
+      summaryJa: this.requiredArticleText(input.summaryJa, '概要'),
+      categoryJa: this.requiredArticleText(input.categoryJa, 'カテゴリ'),
+      bodyJa: this.requiredArticleText(input.bodyJa, '本文'),
+      sortOrder: this.articleSortOrder(input.sortOrder, this.technicalArticles.length + 1),
+      status: this.articleStatus(input.status, 'draft'),
+      publishedAt: this.articlePublishedAt(input.publishedAt, input.status === 'published' ? now : undefined),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.technicalArticles.push(article);
+    this.audit('technical_article.create', operator, 'technical_article', article.id, `技術記事を作成しました：${article.titleJa}`);
+    return this.adminState();
+  }
+
+  updateTechnicalArticle(articleId: string, input: TechnicalArticleInput, operator: string) {
+    const article = this.technicalArticles.find((item) => item.id === articleId);
+    if (!article) {
+      throw new Error('技術記事が見つかりません。');
+    }
+    const beforeStatus = article.status;
+    if (input.titleJa !== undefined) article.titleJa = this.requiredArticleText(input.titleJa, 'タイトル');
+    if (input.summaryJa !== undefined) article.summaryJa = this.requiredArticleText(input.summaryJa, '概要');
+    if (input.categoryJa !== undefined) article.categoryJa = this.requiredArticleText(input.categoryJa, 'カテゴリ');
+    if (input.bodyJa !== undefined) article.bodyJa = this.requiredArticleText(input.bodyJa, '本文');
+    if (input.sortOrder !== undefined) article.sortOrder = this.articleSortOrder(input.sortOrder, article.sortOrder);
+    if (input.status !== undefined) article.status = this.articleStatus(input.status, article.status);
+    if (input.publishedAt !== undefined) {
+      article.publishedAt = this.articlePublishedAt(input.publishedAt, article.publishedAt);
+    } else if (beforeStatus !== 'published' && article.status === 'published' && !article.publishedAt) {
+      article.publishedAt = this.now();
+    }
+    article.updatedAt = this.now();
+    const action =
+      beforeStatus !== 'published' && article.status === 'published'
+        ? 'technical_article.publish'
+        : beforeStatus === 'published' && article.status !== 'published'
+          ? 'technical_article.hide'
+          : 'technical_article.update';
+    this.audit(action, operator, 'technical_article', article.id, `技術記事を保存しました：${article.titleJa}`);
+    return this.adminState();
+  }
+
   async refreshMarketsNow(operator: string) {
     await this.refreshExternalMarkets(true);
     this.audit('exchange.refresh', operator, 'exchange', 'all', '手动刷新交易所行情 API');
@@ -2249,6 +2415,49 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
   private publicSupportConfig(): SupportConfig {
     return this.normalizeSupportConfig(this.supportConfig);
+  }
+
+  private adminTechnicalArticles() {
+    return [...this.technicalArticles].sort((first, second) => this.technicalArticleSort(first, second));
+  }
+
+  private publicTechnicalArticles() {
+    return this.adminTechnicalArticles().filter((article) => article.status === 'published');
+  }
+
+  private technicalArticleSort(first: TechnicalArticle, second: TechnicalArticle) {
+    if (first.sortOrder !== second.sortOrder) {
+      return first.sortOrder - second.sortOrder;
+    }
+    return new Date(second.publishedAt ?? second.updatedAt).getTime() - new Date(first.publishedAt ?? first.updatedAt).getTime();
+  }
+
+  private requiredArticleText(value: unknown, label: string) {
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (!text) {
+      throw new Error(`${label}を入力してください。`);
+    }
+    return text;
+  }
+
+  private articleSortOrder(value: unknown, fallback: number) {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) ? Math.max(0, Math.floor(numericValue)) : fallback;
+  }
+
+  private articleStatus(value: unknown, fallback: TechnicalArticle['status']) {
+    return value === 'draft' || value === 'published' || value === 'hidden' ? value : fallback;
+  }
+
+  private articlePublishedAt(value: unknown, fallback?: string) {
+    if (value === undefined || value === null || value === '') {
+      return fallback;
+    }
+    const date = new Date(String(value));
+    if (Number.isNaN(date.getTime())) {
+      throw new Error('公開日時を正しく入力してください。');
+    }
+    return date.toISOString();
   }
 
   private normalizeSupportConfig(config: SupportConfig): SupportConfig {
@@ -2706,10 +2915,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       };
     }
     if (this.todayAttemptCount(customer) >= this.effectiveDailyLimit(customer)) {
+      this.disableAutoAiForDailyLimit(customer);
       return {
-        enabled: true,
+        enabled: false,
         stage: 'limit_reached',
-        nextRunHintJa: '本日の利用上限に達しました。東京時間の翌日から再開できます。',
+        nextRunHintJa: '本日の利用回数が完了したため、自動AI裁定を停止しました。翌日はお客様ご自身で再度ONにしてください。',
       };
     }
 
@@ -2755,6 +2965,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
     if (this.shouldMissOpportunity(customer, opportunity)) {
       const failedOrder = this.missOpportunity(customer, opportunity, undefined, 'auto');
+      const stoppedForDailyLimit = this.disableAutoAiForDailyLimit(customer);
       this.autoAiRuns.set(customer.id, {
         lastRunAt: Date.now(),
         lastEvent: 'missed',
@@ -2763,17 +2974,20 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       });
       this.ensureDailyOpportunities(customer, marketTickers);
       return {
-        enabled: true,
+        enabled: customer.autoAiEnabled,
         stage: 'missed',
         lastOrderNo: failedOrder.businessNo,
         lastMissedOpportunityId: opportunity.id,
         lastMissedReasonJa: opportunity.missedReasonJa,
         lastMissedAt: opportunity.missedAt,
-        nextRunHintJa: '市場条件が変動したため、直近の裁定機会は見送りとなりました。',
+        nextRunHintJa: stoppedForDailyLimit
+          ? '本日の利用回数が完了したため、自動AI裁定を停止しました。翌日はお客様ご自身で再度ONにしてください。'
+          : '市場条件が変動したため、直近の裁定機会は見送りとなりました。',
       };
     }
 
     const order = this.settleOpportunity(customer, opportunity, 'auto');
+    const stoppedForDailyLimit = this.disableAutoAiForDailyLimit(customer);
     this.autoAiRuns.set(customer.id, {
       lastRunAt: Date.now(),
       lastEvent: 'settled',
@@ -2782,12 +2996,14 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     });
     this.ensureDailyOpportunities(customer, marketTickers);
     return {
-      enabled: true,
+      enabled: customer.autoAiEnabled,
       stage: 'settled',
       lastOrderNo: order.businessNo,
       lastProfitJpy: order.profitJpy,
       lastSettledAt: order.settledAt,
-      nextRunHintJa: 'AI裁定処理が完了し、利益はJPY残高へ反映されました。',
+      nextRunHintJa: stoppedForDailyLimit
+        ? '本日の利用回数が完了したため、自動AI裁定を停止しました。翌日はお客様ご自身で再度ONにしてください。'
+        : 'AI裁定処理が完了し、利益はJPY残高へ反映されました。',
     };
   }
 
@@ -2974,6 +3190,21 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     if (this.todayAttemptCount(customer) >= this.effectiveDailyLimit(customer)) {
       throw new Error('本日のAI裁定利用上限に達しました。');
     }
+  }
+
+  private disableAutoAiForDailyLimit(customer: CustomerRecord) {
+    if (!customer.autoAiEnabled || this.todayAttemptCount(customer) < this.effectiveDailyLimit(customer)) {
+      return false;
+    }
+    customer.autoAiEnabled = false;
+    this.audit(
+      'simulation.auto_stop_daily_limit',
+      'system',
+      'customer',
+      customer.id,
+      `${customer.email} 本日のAI裁定利用回数が完了したため、自動AI裁定を停止`,
+    );
+    return true;
   }
 
   private todayOrderCount(customer: CustomerRecord) {

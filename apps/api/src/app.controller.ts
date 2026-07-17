@@ -294,6 +294,41 @@ export class AppController {
     return this.safe(() => this.appService.updateSupportConfig(body, this.admin(authorization, 'admin.view')));
   }
 
+  @Post('admin/technical-articles')
+  createTechnicalArticle(
+    @Headers('authorization') authorization: string | undefined,
+    @Body()
+    body: {
+      titleJa?: string;
+      summaryJa?: string;
+      categoryJa?: string;
+      bodyJa?: string;
+      sortOrder?: number | string;
+      status?: 'draft' | 'published' | 'hidden';
+      publishedAt?: string;
+    },
+  ) {
+    return this.safe(() => this.appService.createTechnicalArticle(body, this.admin(authorization, 'admin.view')));
+  }
+
+  @Patch('admin/technical-articles/:articleId')
+  updateTechnicalArticle(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('articleId') articleId: string,
+    @Body()
+    body: {
+      titleJa?: string;
+      summaryJa?: string;
+      categoryJa?: string;
+      bodyJa?: string;
+      sortOrder?: number | string;
+      status?: 'draft' | 'published' | 'hidden';
+      publishedAt?: string;
+    },
+  ) {
+    return this.safe(() => this.appService.updateTechnicalArticle(articleId, body, this.admin(authorization, 'admin.view')));
+  }
+
   private customer(authorization?: string) {
     return this.appService.customerByToken(this.bearer(authorization));
   }

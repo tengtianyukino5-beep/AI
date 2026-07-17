@@ -348,6 +348,19 @@ export interface SupportConfig {
   updatedAt: string;
 }
 
+export interface TechnicalArticle {
+  id: string;
+  titleJa: string;
+  summaryJa: string;
+  categoryJa: string;
+  bodyJa: string;
+  sortOrder: number;
+  status: 'draft' | 'published' | 'hidden';
+  publishedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DashboardData {
   customer: CustomerProfile;
   balances: AssetBalance[];
@@ -369,6 +382,7 @@ export interface DashboardData {
   disclosureJa: string;
   tradingRuntime: TradingRuntimeStatus;
   supportConfig: SupportConfig;
+  technicalArticles: TechnicalArticle[];
 }
 
 export interface AdminSummary {
